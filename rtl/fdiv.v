@@ -1,0 +1,308 @@
+`include "fpu_config.vh"
+
+module fdiv #(
+    parameter ID_WIDTH = 5
+)(
+    input  wire                clk        ,
+    input  wire                rst        ,
+
+    input  wire                issue_valid,
+    input  wire [ID_WIDTH-1:0] issue_id   ,
+    input  wire [         6:0] op         ,
+    input  wire [         2:0] rm         ,
+
+    // 操作数拆包
+    input  wire               s1_sign, s2_sign,
+    input  wire signed [ 8:0] s1_exp , s2_exp ,
+    input  wire        [23:0] s1_sig , s2_sig ,
+    input  wire               s1_zero, s2_zero,
+    input  wire               s1_inf , s2_inf ,
+    input  wire               s1_nan , s2_nan ,
+    input  wire               s1_snan, s2_snan,
+
+    input  wire                flush      ,
+    input  wire [ID_WIDTH-1:0] flush_id   ,
+
+    output wire                wb_valid   ,
+    output wire [ID_WIDTH-1:0] wb_id      ,
+    output wire [        31:0] wb_result  ,
+    output wire [         4:0] wb_fflags
+);
+
+    // ---------------------------------------------------------------
+    // 多周期除法控制
+    // CPU 在 fpu_valid 拉低期间冻结流水线, 同一条 fdiv 的 issue_valid
+    // 会持续为高, 故用 busy 自锁: 仅在非忙时启动一次, 运算(含 wb 呈现
+    // 拍)期间忽略重复 issue, wb 呈现后一拍再释放 busy。
+    // ---------------------------------------------------------------
+    wire fstart = issue_valid & ~busy & ~flush;
+
+    reg        busy;          // 运算中(含 wb 呈现拍)
+    reg [ 4:0] cnt;           // 除法步计数 0..23, 24 = 完成
+    reg [24:0] rem_ff;        // 余数
+    reg [23:0] quo_ff;        // 24 位商小数(bit23 首小数位), 与 div_frac 一致
+
+    // 操作数锁存(启动沿采样)
+    reg        res_sign_ff;
+    reg [ 8:0] s1_exp_ff, s2_exp_ff;
+    reg [23:0] s1_sig_ff, s2_sig_ff;
+    reg        s1_zero_ff, s2_zero_ff;
+    reg        s1_inf_ff , s2_inf_ff ;
+    reg        s1_nan_ff , s2_nan_ff ;
+    reg        s1_snan_ff, s2_snan_ff;
+    reg [ 2:0] rm_ff;
+    reg [ID_WIDTH-1:0] id_ff;
+
+    // 启动沿的归一化(用当前输入)
+    wire a_lt_b_in = (s1_sig < s2_sig);
+    wire [24:0] a_shifted_in = a_lt_b_in ? ({1'b0, s1_sig} << 1) : {1'b0, s1_sig};
+
+    // ---------------------------------------------------------------
+    // 特殊值判定(锁存后的值)
+    // ---------------------------------------------------------------
+    wire res_sign = res_sign_ff;
+
+    // NaN：任一来源 NaN，或 0/0、Inf/Inf
+    wire nan_result = s1_nan_ff | s2_nan_ff | (s1_zero_ff & s2_zero_ff) | (s1_inf_ff & s2_inf_ff);
+    // NV：只有 signaling NaN、0/0、Inf/Inf 置位（quiet NaN 不置）
+    wire nv_flag    = s1_snan_ff | s2_snan_ff | (s1_zero_ff & s2_zero_ff) | (s1_inf_ff & s2_inf_ff);
+
+    // Inf 结果：Inf / 有限，或 有限非零 / 0
+    wire inf_result = ~nan_result &
+                      (s1_inf_ff | (s2_zero_ff & ~s1_zero_ff & ~s1_inf_ff));
+    // DZ：仅 有限非零 / 0
+    wire dz_flag    = s2_zero_ff & ~s1_zero_ff & ~s1_inf_ff & ~s1_nan_ff & ~s2_nan_ff;
+
+    // 零结果：0 / 有限，有限 / Inf（均精确，无标志）
+    wire zero_result = ~nan_result & ~inf_result &
+                       ((s1_zero_ff & ~s2_nan_ff) | (s2_inf_ff & ~s1_nan_ff));
+
+    wire is_finite = ~nan_result & ~inf_result & ~zero_result;
+
+    // ---------------------------------------------------------------
+    // 有效数归一：sig_a/sig_b ∈ [1,2)。若 sig_a < sig_b，
+    // 被除数左移 1 位（改成 (2*sig_a)/sig_b ∈ [1,2)），指数相应 -1
+    // ---------------------------------------------------------------
+    wire a_lt_b = (s1_sig_ff < s2_sig_ff);
+    wire signed [9:0] norm_exp0 = a_lt_b ?
+        ({{1{s1_exp_ff[8]}}, s1_exp_ff} - {{1{s2_exp_ff[8]}}, s2_exp_ff} - 10'sd1) :
+        ({{1{s1_exp_ff[8]}}, s1_exp_ff} - {{1{s2_exp_ff[8]}}, s2_exp_ff});
+
+    // ---------------------------------------------------------------
+    // 恢复余数除法：每拍 1 位，共 24 拍，与原单拍版本逐位一致。
+    // 首商位恒为 1（余数初始为 a_shifted - sig_b，启动沿写入）。
+    // ---------------------------------------------------------------
+    wire [25:0] step_r_s = {rem_ff, 1'b0};                 // rem << 1
+    wire [25:0] step_y   = {2'b0, s2_sig_ff};              // 除数对齐
+    wire        step_hit = (step_r_s >= step_y);
+    wire [24:0] step_rem = step_hit ? (step_r_s - step_y) : step_r_s[24:0];
+    wire [23:0] step_quo = {quo_ff[22:0], step_hit};
+
+    wire [24:0] div_rem    = rem_ff;      // 最终余数（非零 => sticky）
+    wire [23:0] div_frac   = quo_ff;      // 24 位小数（bit23 首小数位）
+    wire [24:0] quo        = {1'b1, div_frac}; // 25 bit 商：1.frac(含 guard)
+    wire        div_sticky = |div_rem;
+
+    // ---------------------------------------------------------------
+    // 舍入（正规路径）：
+    //   fraction(23) = div_frac[23:1]，guard = div_frac[0]，
+    //   sticky = 最终余数非零（余数低于 guard 的全部并入 sticky，round 位=0）
+    // ---------------------------------------------------------------
+    wire [22:0] frac23_r = div_frac[23:1];
+    wire        guard    = div_frac[0];
+
+    wire round_up_r, inexact_r;
+    frm u_frm (
+        .rm      (rm_ff        ),
+        .sign    (res_sign     ),
+        .lsb     (div_frac[1]  ),
+        .guard   (guard        ),
+        .round   (1'b0         ),
+        .sticky  (div_sticky   ),
+        .round_up(round_up_r   ),
+        .inexact (inexact_r    )
+    );
+
+    wire [23:0] frac_c  = {1'b0, frac23_r} + {23'd0, round_up_r};
+    wire        carry   = frac_c[23];                       // 舍入进位到 2.0
+    wire signed [9:0] exp_norm  = norm_exp0 + (carry ? 10'sd1 : 10'sd0);
+    wire [22:0]       frac_norm = carry ? 23'd0 : frac_c[22:0];
+
+    wire norm_of     = (exp_norm > 10'sd127);
+    reg [31:0] norm_result;
+    always @(*) begin
+        if (norm_of)
+            norm_result = {res_sign, 8'hFF, 23'd0};
+        else
+            norm_result = {res_sign, exp_norm[7:0] + 8'd127, frac_norm};
+    end
+
+    reg [4:0] norm_fflags;
+    always @(*) begin
+        norm_fflags = 5'd0;
+        if (norm_of) begin
+            norm_fflags[`OF] = 1'b1;
+            norm_fflags[`NX] = 1'b1;   // 上溢舍入恒不精确
+        end else begin
+            norm_fflags[`NX] = inexact_r;
+        end
+    end
+
+    // ---------------------------------------------------------------
+    // 次正规路径（exp_norm < -126）：把商的 25 bit 有效位右移到
+    // 2^-149 网格上，单位数 N = quo * 2^(exp_precarry + 125)，
+    // fraction = N 的低 23 位，更低位与最终余数并入 sticky。
+    // 注意：路径选择用舍入前的 norm_exp0（与 fma_unit 一致）。
+    // ---------------------------------------------------------------
+    wire signed [9:0] sub_rsh = -norm_exp0 - 10'sd125;   // >= 2 (exp_norm0 <= -127)
+
+    // 统计 v 中低于 sh 位的位 OR（sh: 0..31），补进 sticky
+    function automatic sub_shift_sticky;
+        input [4:0] sh;
+        input [24:0] v;
+        integer     i;
+        reg         r;
+        begin
+            r = 1'b0;
+            for (i = 0; i < 25; i = i + 1)
+                if (i < sh) r = r | v[i];
+            sub_shift_sticky = r;
+        end
+    endfunction
+
+    wire [24:0] sub_N_raw = (sub_rsh <= 10'sd25) ? (quo >> sub_rsh[4:0]) : 25'd0;
+    wire [23:0] sub_N = sub_N_raw[23:0];
+
+    wire        sub_shifted_sticky = (sub_rsh <= 10'sd25) ? sub_shift_sticky(sub_rsh[4:0], quo) : |quo;
+    wire        sub_sticky = div_sticky | sub_shifted_sticky;
+
+    wire [22:0] sub_frac = sub_N[22:0];
+
+    wire sub_round_up, sub_inexact;
+    frm u_sub_frm (
+        .rm      (rm_ff          ),
+        .sign    (res_sign       ),
+        .lsb     (sub_frac[0]    ),
+        .guard   (1'b0           ),
+        .round   (1'b0           ),
+        .sticky  (sub_sticky     ),
+        .round_up(sub_round_up   ),
+        .inexact (sub_inexact    )
+    );
+
+    wire [23:0] sub_frac_c = {1'b0, sub_frac} + {23'd0, sub_round_up};
+    wire        sub_to_normal = sub_frac_c[23];   // 舍入进位 -> 最小正规数
+    wire        sub_zero_out  = (sub_frac_c == 24'd0);
+
+    reg [31:0] sub_result;
+    reg [4:0]  sub_fflags;
+    always @(*) begin
+        if (sub_to_normal) begin
+            sub_result = {res_sign, 8'd1, 23'd0};
+        end else if (sub_zero_out) begin
+            sub_result = {res_sign, 31'd0};
+        end else begin
+            sub_result = {res_sign, 8'd0, sub_frac_c[22:0]};
+        end
+        sub_fflags = 5'd0;
+        if (sub_inexact) begin
+            sub_fflags[`NX] = 1'b1;
+            // after-rounding tininess：舍入进位到最小正规则不视为下溢
+            if (~sub_to_normal)
+                sub_fflags[`UF] = 1'b1;
+        end
+    end
+
+    // ---------------------------------------------------------------
+    // 有限路径选择：exp_precarry < -126 走次正规，否则正规
+    // ---------------------------------------------------------------
+    wire [31:0] finite_result = (norm_exp0 < -10'sd126) ? sub_result : norm_result;
+    wire [4:0]  finite_fflags = (norm_exp0 < -10'sd126) ? sub_fflags  : norm_fflags;
+
+    reg [31:0] result_combo;
+    reg [4:0]  fflags_combo;
+    always @(*) begin
+        result_combo = finite_result;
+        fflags_combo = finite_fflags;
+        if (nan_result) begin
+            result_combo = 32'h7fc00000;
+            fflags_combo = {nv_flag, 4'b0000};
+        end else if (inf_result) begin
+            result_combo = {res_sign, 8'hFF, 23'd0};
+            fflags_combo = {1'b0, dz_flag, 3'b000};
+        end else if (zero_result) begin
+            result_combo = {res_sign, 31'd0};
+            fflags_combo = 5'd0;
+        end
+    end
+
+    // ---------------------------------------------------------------
+    // 状态机与写回
+    //   E0  启动: 锁存操作数, rem0 = a_shifted - sig_b
+    //   E1..E24  24 拍逐位除法
+    //   E25  完成拍: 组合计算 result_combo, 置 wb_valid_r
+    //   E26  wb 呈现拍(仲裁器取走), 释放 busy
+    // ---------------------------------------------------------------
+    reg                wb_valid_r;
+    reg [ID_WIDTH-1:0] wb_id_r;
+    reg         [31:0] wb_result_r;
+    reg         [ 4:0] wb_fflags_r;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            busy       <= 1'b0;
+            cnt        <= 5'd0;
+            wb_valid_r <= 1'b0;
+            wb_id_r    <= {ID_WIDTH{1'b0}};
+            wb_result_r<= 32'd0;
+            wb_fflags_r<= 5'd0;
+        end else begin
+            wb_valid_r <= 1'b0;
+            if (flush) begin
+                busy <= 1'b0;
+                cnt  <= 5'd0;
+            end else if (fstart) begin
+                busy        <= 1'b1;
+                cnt         <= 5'd0;
+                rem_ff      <= a_shifted_in - {1'b0, s2_sig};
+                quo_ff      <= 24'd0;
+                res_sign_ff <= s1_sign ^ s2_sign;
+                s1_exp_ff   <= s1_exp ;
+                s2_exp_ff   <= s2_exp ;
+                s1_sig_ff   <= s1_sig ;
+                s2_sig_ff   <= s2_sig ;
+                s1_zero_ff  <= s1_zero;
+                s2_zero_ff  <= s2_zero;
+                s1_inf_ff   <= s1_inf ;
+                s2_inf_ff   <= s2_inf ;
+                s1_nan_ff   <= s1_nan ;
+                s2_nan_ff   <= s2_nan ;
+                s1_snan_ff  <= s1_snan;
+                s2_snan_ff  <= s2_snan;
+                rm_ff       <= rm      ;
+                id_ff       <= issue_id;
+            end else if (busy) begin
+                if (wb_valid_r) begin
+                    // wb 已呈现一拍, 释放 busy, 允许下一条 fdiv
+                    busy <= 1'b0;
+                end else if (cnt == 5'd24) begin
+                    // 24 步除法结束, 组合结果写入 wb 寄存器
+                    wb_valid_r  <= 1'b1;
+                    wb_id_r     <= id_ff;
+                    wb_result_r <= result_combo;
+                    wb_fflags_r <= fflags_combo;
+                end else begin
+                    cnt    <= cnt + 5'd1;
+                    rem_ff <= step_rem;
+                    quo_ff <= step_quo;
+                end
+            end
+        end
+    end
+
+    assign wb_valid   = wb_valid_r;
+    assign wb_id      = wb_id_r;
+    assign wb_result  = wb_result_r;
+    assign wb_fflags  = wb_fflags_r;
+
+endmodule

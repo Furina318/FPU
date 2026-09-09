@@ -1,0 +1,1 @@
+COMMON_CFLAGS += -march=rv32imf_zicsr -mabi=ilp32 
