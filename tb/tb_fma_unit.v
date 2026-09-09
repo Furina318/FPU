@@ -205,7 +205,7 @@ module tb_fma_unit;
             #10;                     // 保持一拍，在下一个下降沿释放
             issue_valid = 1'b0;
 
-            while (!wb_valid)
+            while (!(wb_valid && (wb_id === exp_id)))
                 #10;
 
             #1;
@@ -235,8 +235,11 @@ module tb_fma_unit;
         $dumpfile("tb_fma_unit.vcd");
         $dumpvars(0, tb_fma_unit);
 
-        #5 rst = 1'b0;
-        #10;
+        // 让模块在复位状态下度过至少一个上升沿，确保内部 reg 完成初始化
+        rst = 1'b1;
+        repeat (2) @(posedge clk);
+        rst = 1'b0;
+        @(negedge clk);
 
         // FADD: 1 + 2 = 3
         run_one(`FADD_S, `RNE, 32'h3f800000, 32'h40000000, 32'h00000000,

@@ -29,20 +29,14 @@ module fdiv #(
     output wire [         4:0] wb_fflags
 );
 
-    // ---------------------------------------------------------------
-    // 多周期除法控制
-    // CPU 在 fpu_valid 拉低期间冻结流水线, 同一条 fdiv 的 issue_valid
-    // 会持续为高, 故用 busy 自锁: 仅在非忙时启动一次, 运算(含 wb 呈现
-    // 拍)期间忽略重复 issue, wb 呈现后一拍再释放 busy。
-    // ---------------------------------------------------------------
     wire fstart = issue_valid & ~busy & ~flush;
 
-    reg        busy;          // 运算中(含 wb 呈现拍)
-    reg [ 4:0] cnt;           // 除法步计数 0..23, 24 = 完成
+    reg        busy;          // 运算中
+    reg [ 4:0] cnt;           // 除法步计数
     reg [24:0] rem_ff;        // 余数
-    reg [23:0] quo_ff;        // 24 位商小数(bit23 首小数位), 与 div_frac 一致
+    reg [23:0] quo_ff;        // 24 位商小数
 
-    // 操作数锁存(启动沿采样)
+    // 操作数锁存
     reg        res_sign_ff;
     reg [ 8:0] s1_exp_ff, s2_exp_ff;
     reg [23:0] s1_sig_ff, s2_sig_ff;
@@ -53,13 +47,11 @@ module fdiv #(
     reg [ 2:0] rm_ff;
     reg [ID_WIDTH-1:0] id_ff;
 
-    // 启动沿的归一化(用当前输入)
+    // 启动沿的归一化
     wire a_lt_b_in = (s1_sig < s2_sig);
     wire [24:0] a_shifted_in = a_lt_b_in ? ({1'b0, s1_sig} << 1) : {1'b0, s1_sig};
 
-    // ---------------------------------------------------------------
-    // 特殊值判定(锁存后的值)
-    // ---------------------------------------------------------------
+    // 特殊值判定
     wire res_sign = res_sign_ff;
 
     // NaN：任一来源 NaN，或 0/0、Inf/Inf
