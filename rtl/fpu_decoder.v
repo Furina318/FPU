@@ -31,26 +31,25 @@ module fpu_decoder (
     assign is_snan      = is_nan && (f[22] == 1'b0);
     assign is_qnan      = is_nan && (f[22] == 1'b1);
 
-    // 前导零计算
-    function automatic [4:0] leading_zeros;
-        input [22:0] v;
-        reg          found;
-        integer      i;
+    // 前导零计算：5 级二分决策树
+    function automatic [5:0] clz32;
+        input [31:0] v;
+        reg [31:0] tmp;
+        reg [5:0]  count;
         begin
-            found = 1'b0;
-            leading_zeros = 5'd23;
-            for (i = 22; i >= 0; i = i - 1) begin
-                if (!found) begin
-                    if (v[i]) begin
-                        leading_zeros = 5'd22 - i[4:0];
-                        found = 1'b1;
-                    end
-                end
-            end
+            tmp   = v;
+            count = 6'd0;
+            if (tmp[31:16] == 16'b0) begin count = count + 16; tmp = tmp << 16; end
+            if (tmp[31:24] == 8'b0)  begin count = count + 8;  tmp = tmp << 8;  end
+            if (tmp[31:28] == 4'b0)  begin count = count + 4;  tmp = tmp << 4;  end
+            if (tmp[31:30] == 2'b0)  begin count = count + 2;  tmp = tmp << 2;  end
+            if (tmp[31]    == 1'b0)  begin count = count + 1;  end
+            clz32 = (v == 32'b0) ? 6'd32 : count;
         end
     endfunction
 
-    wire [4:0] lead_zero = leading_zeros(f);
+    // 23 位尾数前导零 = 尾数放到 32 位低 23 位(高位补 9 个 0)的 CLZ 减 9
+    wire [4:0] lead_zero = clz32({9'b0, f}) - 5'd9;
 
     // normal 有效数：1.fraction
     wire [23:0] sig_normal = {1'b1, f};

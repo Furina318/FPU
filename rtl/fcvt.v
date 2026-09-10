@@ -24,22 +24,20 @@ module fcvt (
     output reg  [4:0]  fflags
 );
 
-    // 前导零计数
-    function automatic [4:0] clz32;
+    // 前导零计数：5 级二分决策树
+    function automatic [5:0] clz32;
         input [31:0] v;
-        reg found;
-        integer i;
+        reg [31:0] tmp;
+        reg [5:0]  count;
         begin
-            clz32 = 5'd31;
-            found = 1'b0;
-            for (i = 31; i >= 0; i = i - 1) begin
-                if (!found) begin
-                    if (v[i]) begin
-                        clz32 = 5'd31 - i[4:0];
-                        found = 1'b1;
-                    end
-                end
-            end
+            tmp   = v;
+            count = 6'd0;
+            if (tmp[31:16] == 16'b0) begin count = count + 16; tmp = tmp << 16; end
+            if (tmp[31:24] == 8'b0)  begin count = count + 8;  tmp = tmp << 8;  end
+            if (tmp[31:28] == 4'b0)  begin count = count + 4;  tmp = tmp << 4;  end
+            if (tmp[31:30] == 2'b0)  begin count = count + 2;  tmp = tmp << 2;  end
+            if (tmp[31]    == 1'b0)  begin count = count + 1;  end
+            clz32 = (v == 32'b0) ? 6'd32 : count;
         end
     endfunction
 
