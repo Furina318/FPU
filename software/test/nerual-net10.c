@@ -110,7 +110,7 @@ int main() {
     static float b3[2] = { +0.1876f, +0.1705f };
 
     const float lr = 1.0f;
-    const int epochs = 10;
+    const int epochs = 100;
     const int num_samples = 2;
 
     static float h1[16], z1[16];       
@@ -245,15 +245,10 @@ int main() {
 
     // 相对误差容忍 1e-4
     {
-        union { float f; unsigned u; } d;
         int ii;
         putstr("preds: ");
         for (ii = 0; ii < 4; ii++) {
-            d.f = ((float*)preds)[ii];
-            for (int j = 7; j >= 0; j--) {
-                int nib = (d.u >> (4*j)) & 0xf;
-                putch("0123456789abcdef"[nib]);
-            }
+            put_float_decimal(((float*)preds)[ii]);
             putch(' ');
         }
         putch('\n');

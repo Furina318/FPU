@@ -10,13 +10,13 @@ module fpu_arbiter #(
     input  wire [DATA_WIDTH-1:0] req_data_i  [0:NUM_PORTS-1],
     input  wire [           4:0] req_fflags_i[0:NUM_PORTS-1],
 
-    output reg  [ NUM_PORTS-1:0] grant_o,
-    output reg                   wb_valid_o,
-    output reg  [  ID_WIDTH-1:0] wb_id_o,
-    output reg  [DATA_WIDTH-1:0] wb_data_o,
+    output reg  [ NUM_PORTS-1:0] grant_o    , // 1-hot独热码
+    output reg                   wb_valid_o ,
+    output reg  [  ID_WIDTH-1:0] wb_id_o    ,
+    output reg  [DATA_WIDTH-1:0] wb_data_o  ,
     output reg  [           4:0] wb_fflags_o,
 
-    input  wire                  flush,
+    input  wire                  flush      ,
     input  wire [  ID_WIDTH-1:0] flush_id
 );
 

@@ -1,11 +1,4 @@
 # RV32IMF 软件测试环境 Makefile
-#
-#   make test TEST=add           编译 test/add.c,输出 build/test/add.bin 与反汇编 build/test/add.txt
-#   make test                    编译 test/ 下所有 .c 测试
-#   make asm  TEST=fmsub_b15-017 编译 asm-test/fmsub_b15/fmsub_b15-017.S,输出 build/asm-test/fmsub_b15-017.bin 与 .txt
-#   make asm                     编译 asm-test/ 下所有 .S 测试(含子目录)
-#   make all                     编译全部 test 与 asm 测试
-#   make clean                   删除 build 目录
 
 CROSS_COMPILE = riscv64-linux-gnu-
 

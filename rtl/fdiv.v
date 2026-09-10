@@ -87,7 +87,8 @@ module fdiv #(
     wire [25:0] step_r_s = {rem_ff, 1'b0};                 // rem << 1
     wire [25:0] step_y   = {2'b0, s2_sig_ff};              // 除数对齐
     wire        step_hit = (step_r_s >= step_y);
-    wire [24:0] step_rem = step_hit ? (step_r_s - step_y) : step_r_s[24:0];
+    wire [25:0] step_rem_25 = step_hit ? (step_r_s - step_y) : step_r_s;
+    wire [24:0] step_rem = step_rem_25[24:0];
     wire [23:0] step_quo = {quo_ff[22:0], step_hit};
 
     wire [24:0] div_rem    = rem_ff;      // 最终余数（非零 => sticky）

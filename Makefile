@@ -1,11 +1,3 @@
-# FPU 顶层 Makefile
-#
-#   make cpu TEST=dummy        编译 software 测试并在 cpu 核上跑 verilator 仿真, 生成波形
-#                              产物: cpu/build/(verilator 编译产物、Vysyx_25010030_npc、npc-log.txt、wave.vcd)
-#   make cpu TEST=fadd_b1-01   运行 asm 测试(与 C 测试同名时优先 C 测试)
-#   make cpu-clean             清理 cpu 构建产物
-#   make tb                    运行 rtl 单元级验证(iverilog, 详见 tb/Makefile)
-
 TEST ?= dummy
 FRAME ?= pipeline-FPU
 

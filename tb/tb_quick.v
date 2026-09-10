@@ -1,3 +1,4 @@
+
 `include "fpu_config.vh"
 
 // 临时回归: fquick 零与小数比较
@@ -18,11 +19,22 @@ module tb_quick;
     integer tests;
 
     fpu #(.ID_WIDTH(ID_WIDTH)) u_dut (
-        .clk(clk), .rst(rst), .valid(valid), .ready(ready),
-        .fpu_op(fpu_op), .rm(rm), .src1(src1), .src2(src2), .src3(src3),
-        .flush(flush), .flush_id(flush_id), .fpu_id(fpu_id),
-        .fpu_valid(fpu_valid), .fpu_id_o(fpu_id_o),
-        .fpu_result(fpu_result), .fpu_fflags(fpu_fflags));
+        .clk(clk), 
+        .rst(rst), 
+        .valid(valid), 
+        .ready(ready),
+        .fpu_op(fpu_op), 
+        .rm(rm), 
+        .src1(src1), 
+        .src2(src2), 
+        .src3(src3),
+        .flush(flush), 
+        .flush_id(flush_id), 
+        .fpu_id(fpu_id),
+        .fpu_valid(fpu_valid), 
+        .fpu_id_o(fpu_id_o),
+        .fpu_result(fpu_result), 
+        .fpu_fflags(fpu_fflags));
 
     always #5 clk = ~clk;
 
@@ -105,7 +117,6 @@ module tb_quick;
 
         $display("========================================");
         $display("quick tests: %0d passed, %0d errors", tests - errors, errors);
-        $display("========================================");
         $finish(errors ? 1 : 0);
     end
 endmodule
