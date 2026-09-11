@@ -72,12 +72,7 @@ module wbu (
 
     integer i;
     always @(posedge clk) begin
-        if (rst) begin
-            for (i = 0; i < 32; i = i + 1) begin
-                regs[i] <= 32'h0;
-            end
-        end
-        else if (exu_valid && gpr_we && (|rd)) begin
+        if (exu_valid && gpr_we && (|rd)) begin
             regs[rd] <= wb_data;
         end
     end
@@ -90,12 +85,7 @@ module wbu (
     reg [ 4:0] fflags_r;
 
     always @(posedge clk) begin
-        if (rst) begin
-            for (i = 0; i < 32; i = i + 1) begin
-                fp_regs[i] <= 32'b0;
-            end
-        end
-        else if (exu_valid && fp_we) begin
+        if (exu_valid && fp_we) begin
             fp_regs[rd] <= wb_data;
         end
     end
@@ -106,7 +96,6 @@ module wbu (
             fflags_r <= 5'd0;
         end
         else if (exu_valid) begin
-            // 所有 FP 架构状态提交一律经 ex_to_wb_bus(注册一拍), 与 GPR/fp_regs 一致
             if (op_fpu)
                 fflags_r <= fflags_r | fpu_fflags;
             if (csr_wr_en & (csr_waddr == `FFLAGS))
@@ -125,21 +114,21 @@ module wbu (
     wire bc_wr_fflags = exu_valid & csr_wr_en & (csr_waddr == `FFLAGS);
     wire bc_fpu_op    = exu_valid & op_fpu                             ;
 
-    wire [ 2:0] fwd_frm    = (bc_wr_fcsr | bc_wr_frm)     ? csr_wdata[7:5]     : frm_r;
-    wire [ 4:0] fwd_fflags = (bc_wr_fcsr | bc_wr_fflags)  ? csr_wdata[4:0]     :
+    wire [ 2:0] fwd_frm    = (bc_wr_fcsr | bc_wr_frm)     ? csr_wdata[`FRM_POS]     : frm_r;
+    wire [ 4:0] fwd_fflags = (bc_wr_fcsr | bc_wr_fflags)  ? csr_wdata[`FFLAGS_POS]  :
                              bc_fpu_op                    ? (fflags_r | fpu_fflags) : fflags_r;
 
     assign rf_frs1_data = fp_regs[rs1];
     assign rf_frs2_data = fp_regs[rs2];
     assign rf_frs3_data = fp_regs[rs3];
 
-    assign fp_frm   = fwd_frm;
+    assign fp_frm    = fwd_frm;
     assign fp_fflags = fflags_r;
 
     wire [31:0] csr_rdata_core;
-    assign csr_rdata = ({32{(csr_raddr == `FFLAGS)}} & {27'b0, fwd_fflags}) |
-                       ({32{(csr_raddr == `FRM)   }} & {29'b0, fwd_frm   }) |
-                       ({32{(csr_raddr == `FCSR)  }} & {24'b0, fwd_frm, fwd_fflags}) |
+    assign csr_rdata = ({32{(csr_raddr == `FFLAGS)}} & {27'b0,          fwd_fflags}) |
+                       ({32{(csr_raddr == `FRM   )}} & {29'b0, fwd_frm            }) |
+                       ({32{(csr_raddr == `FCSR  )}} & {24'b0, fwd_frm, fwd_fflags}) |
                        csr_rdata_core;
 
     csr u_csr (

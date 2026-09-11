@@ -28,7 +28,7 @@ module exu (
     output wire [           31: 0] rd_w_bypass_data ,
     output wire                    rd_w_bypass_en   ,
     output wire                    is_read          ,
-    // bypass (fpr): exu 从 fp bypass / wbu 读 FP 架构状态, 提交在 wbu
+    // bypass (fpr)
     output wire [            4: 0] rs3_addr         ,
     output wire [            4: 0] fp_rd_w_bypass      ,
     output wire [           31: 0] fp_rd_w_bypass_data ,
@@ -197,14 +197,12 @@ module exu (
     wire [ 4:0] fpu_fflags;
     wire        fpu_valid;
 
-    wire fma_op    = (fpu_op >= `FADD_S) & (fpu_op <= `FNMSUB_S);
+    wire fma_op    = (fpu_op[6:4] == 3'b001);
     wire fpu_issue = idu_valid & op_fpu & ~fpu_busy & ~exu_flush_en;
     wire fpu_done  = idu_valid & op_fpu & fpu_valid;
     reg  fpu_busy;
 
-    // 动态舍入模式: inst[14:12]==111 时取 fcsr.frm(fp_frm, 来自 wbu)
-    wire [ 2:0] fpu_rm = (frm == 3'b111) ? fp_frm : frm;
-    // FCVT.S.W/WU 源操作数是整数寄存器; FMV.S 是 FSGNJ.S rd,rs1,rs1 别名, rs2=rs1 由编码保证
+    wire [ 2:0] fpu_rm   = (frm == 3'b111) ? fp_frm : frm;
     wire [31:0] fpu_src1 = ((fpu_op == `FCVT_S_W) | (fpu_op == `FCVT_S_WU)) ? src1 : fp_rs1_data;
     wire [31:0] fpu_src2 = fp_rs2_data;
 

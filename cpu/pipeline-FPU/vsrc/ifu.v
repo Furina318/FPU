@@ -27,50 +27,40 @@ module ifu (
     localparam JAL_OP  = 7'b1101111;
     localparam JALR_OP = 7'b1100111;
 
-    // ─── 跨界指令缓冲区 (Cross Boundary Buffer) ───
+    // 跨界指令缓冲区
     // 仅当 32位指令 跨越了 4字节对齐边界时才使用 (低16位在字尾，高16位在下字头)
     reg         cross_buf_valid;
     reg  [15:0] cross_buf_data;
 
-    // 取指地址：如果在等待跨界指令的后半段，必须向 Cache 请求 pc+2 的下一个字
     assign icache_addr = cross_buf_valid ? (pc + 32'd2) : pc;
 
-    // ─── 提取当前半字与指令边界判定 ───
     wire [15:0] cache_lower_16 = icache_inst[15:0];
     wire [15:0] cache_upper_16 = icache_inst[31:16];
 
-    // 如果 pc 未对齐 (pc[1]==1)，当前指令在字的高半部分；否则在低半部分
     wire [15:0] current_half = pc[1] ? cache_upper_16 : cache_lower_16;
 
-    // 判断该半字是否为 32 位指令（末两位为 11）
     wire is_32bit = cross_buf_valid | (current_half[1:0] == 2'b11);
 
     // 判断是否遇到了 32位指令跨界的第一拍：
     // 未缓存中 + PC在半字边界 + 截取到的半字末两位为 11
     wire is_cross_32_first_beat = ~cross_buf_valid & pc[1] & (current_half[1:0] == 2'b11);
 
-    // ─── 3. C 扩展译码器实例化 ───
     wire [31:0] c_expanded_inst;
     wire        c_decoded_valid;
 
     c_decode u_c_decode (
         .clk   (clk             ),
         .reset (rst             ),
-        .c_inst(current_half    ), // 喂给译码器的一定是当前定位到的半字
+        .c_inst(current_half    ), 
         .inst  (c_expanded_inst ),
         .valid (c_decoded_valid )
     );
 
-    // ─── 最终指令组装 ───
     wire [31:0] output_inst;
-    // 如果在处理跨界第二拍，把新取回的低16位(高半段)和缓存的低半段拼接
-    // 如果是完整的32位指令，直接吐出整个 cache 的 32 位
-    // 否则说明是 C 指令，吐出展开后的 32 位
     assign output_inst = cross_buf_valid ? {cache_lower_16, cross_buf_data} :
                          is_32bit        ? icache_inst : 
                          c_expanded_inst;
 
-    // ─── 有效性与下游握手 ───
     // 当且仅当遇到了跨界 32 位指令的第一拍时，指令不完整，不能发往下游
     wire inst_ready = icache_valid & ~is_cross_32_first_beat;
 
@@ -79,7 +69,7 @@ module ifu (
     wire       this_is_c_inst = inst_ready & ~is_32bit;
     assign is_c_inst = this_is_c_inst;
 
-    // ─── 快速译码与分支预测 ───
+    // 快速译码与分支预测
     wire [ 6:0] opcode     = output_inst[ 6: 0];
     wire [ 4:0] rd         = output_inst[11: 7];
     wire [ 4:0] rs1        = output_inst[19:15];
@@ -155,7 +145,7 @@ module ifu (
                 // 指令被消耗，不论是不是跳转，原跨界缓存都用完了，清空
                 cross_buf_valid <= 1'b0; 
             end
-            // 当遇到跨界 32 位指令的第一拍，我们将其拦下并存入 Buffer (此时 pc_updata 必定为 0)
+            // 当遇到跨界 32 位指令的第一拍，我们将其拦下并存入 Buffer
             else if (icache_valid && is_cross_32_first_beat) begin
                 cross_buf_valid <= 1'b1;
                 cross_buf_data  <= current_half;

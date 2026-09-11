@@ -4,7 +4,9 @@
 `define RUP 3'b011
 `define RMM 3'b100
 
-`define FRM_POS 7:5     // fcsr 中 frm 字段的位置
+`define FRM_POS    7:5     // fcsr 中 frm 字段的位置
+`define FFLAGS_POS 4:0 
+
 `define FFLAGS 12'h001
 `define FRM    12'h002
 `define FCSR   12'h003

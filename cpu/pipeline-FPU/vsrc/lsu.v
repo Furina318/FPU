@@ -72,14 +72,11 @@ module lsu (
 
     assign stb_forward_addr = addr;
 
-    // --- 1. STB 分配逻辑 ---
     assign stb_alloc_valid = lsu_en & is_write;
     assign stb_alloc_addr  = addr;
     assign stb_alloc_data  = wdata;
     assign stb_alloc_wstrb = wstrb;
     assign lsu_stb_id      = stb_alloc_id; 
-
-    // --- 2. LSU 内部 D-Cache 仲裁逻辑 ---
 
     // 引入锁定寄存器：当 Drain 请求已经发出且 DCache 未完成时，锁定仲裁
     reg drain_active;
@@ -103,23 +100,15 @@ module lsu (
     wire grant_drain  = drain_active || (stb_drain_valid && !exu_load_req); 
     wire grant_load   = exu_load_req && !drain_active;
 
-    // // 优先级设计：EXU发来的 Load 指令优先级更高，STB Drain 的优先级更低。
-    // // 如果 STB 满了阻塞了 EXU，lsu_en 为高但无法前进，此时若不是 Load，就会放行 Drain。
-    // wire exu_load_req = lsu_en & is_read;
-    // wire grant_load   = exu_load_req;
-    // wire grant_drain  = stb_drain_valid && !exu_load_req; 
-
     // 只有在被选中（grant_drain）时，D-cache的回应才属于STB
     assign stb_drain_ready = grant_drain && dcache_ready;
 
-    // --- 3. 驱动 D-Cache 的单一接口 [NEW] ---
     assign dcache_valid = grant_load || grant_drain;
     assign dcache_we    = grant_drain; // Load 不会产生写使能，只有 STB Drain 才是写操作
     assign dcache_addr  = grant_load ? addr : stb_drain_addr;
     assign dcache_wdata = stb_drain_data;
     assign dcache_wstrb = grant_drain ? stb_drain_wstrb : 4'b0;
 
-    // --- 4. 读回数据处理 (RAW) ---
     wire [31:0] dcache_rdata_final;
     assign dcache_rdata_final[ 7: 0] = stb_forward_mask[0] ? stb_forward_data[ 7: 0] : dcache_rdata[ 7: 0];
     assign dcache_rdata_final[15: 8] = stb_forward_mask[1] ? stb_forward_data[15: 8] : dcache_rdata[15: 8];
@@ -137,8 +126,6 @@ module lsu (
         endcase
     end
 
-    // --- 5. 对 EXU 的握手逻辑 ---
-    // lsu_ready 取决于指令类型：
     // Load 指令: 等待自己(grant_load)被响应
     // Store 指令: 只需要 STB 还有空位(stb_ready)即可
     assign lsu_ready = (!lsu_en)  ? 1'b1 : 

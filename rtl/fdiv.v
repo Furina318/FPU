@@ -32,9 +32,9 @@ module fdiv #(
     wire fstart = issue_valid & ~busy & ~flush;
 
     reg        busy;          // 运算中
-    reg [ 4:0] cnt;           // 除法步计数
-    reg [24:0] rem_ff;        // 余数
-    reg [23:0] quo_ff;        // 24 位商小数
+    reg [ 4:0] cnt;           // 除法步计数 (0..11: radix-4 迭代; 12: 收尾)
+    reg signed [24:0] rem_ff; // 部分余数 P, |P| <= 2d/3 (首步后)
+    reg signed [26:0] quo_ff; // 商小数在线累积 (12 个 radix-4 数字)
 
     // 操作数锁存
     reg        res_sign_ff;
@@ -81,19 +81,56 @@ module fdiv #(
         ({{1{s1_exp_ff[8]}}, s1_exp_ff} - {{1{s2_exp_ff[8]}}, s2_exp_ff});
 
     // ---------------------------------------------------------------
-    // 恢复余数除法：每拍 1 位，共 24 拍，与原单拍版本逐位一致。
-    // 首商位恒为 1（余数初始为 a_shifted - sig_b，启动沿写入）。
+    // radix-4 SRT 除法: 每拍产 2 位商, 共 12 拍 (原恢复除法为 24 拍)。
+    //   初值 P0 = a_shifted - sig_b ∈ [0, d) (启动沿写入)。
+    //   每拍: P' = 4P, 依 |4P| 相对 0.5d/1.5d/2.5d/3.5d 的阈值选商位 q:
+    //     首拍(q=cnt==0) q ∈ {0,1,2,3,4}, 后续 q ∈ {-2,-1,0,1,2},
+    //   无论选择结果如何均保证 |P_next| <= 2d/3 (收敛重叠区, 无需精确比较)。
+    //   商位带符号, 在线累积(每拍左移 2 位 + 插值), 收尾拍做余数符号
+    //   修正: P<0 => 商 -1ulp、余数 +d, 与恢复除法结果(floor+sticky)逐位一致。
     // ---------------------------------------------------------------
-    wire [25:0] step_r_s = {rem_ff, 1'b0};                 // rem << 1
-    wire [25:0] step_y   = {2'b0, s2_sig_ff};              // 除数对齐
-    wire        step_hit = (step_r_s >= step_y);
-    wire [25:0] step_rem_25 = step_hit ? (step_r_s - step_y) : step_r_s;
-    wire [24:0] step_rem = step_rem_25[24:0];
-    wire [23:0] step_quo = {quo_ff[22:0], step_hit};
+    wire signed [26:0] rem_s = rem_ff;                       // 符号扩展 27b
+    wire signed [26:0] y4    = rem_s <<< 2;                  // 4P
+    wire        p_neg = rem_ff[24];
+    wire [26:0] ymag  = p_neg ? (27'd0 - y4[26:0]) : y4[26:0];
 
-    wire [24:0] div_rem    = rem_ff;      // 最终余数（非零 => sticky）
-    wire [23:0] div_frac   = quo_ff;      // 24 位小数（bit23 首小数位）
-    wire [24:0] quo        = {1'b1, div_frac}; // 25 bit 商：1.frac(含 guard)
+    // 阈值: 0.5d / 1.5d / 2.5d / 3.5d (d = s2_sig_ff ∈ [1,2)*2^23)
+    wire [26:0] s2x = {3'b0, s2_sig_ff};
+    wire [26:0] dhx = {3'b0, {1'b0, s2_sig_ff[23:1]}};
+    wire [26:0] t05 = dhx;
+    wire [26:0] t15 = s2x + dhx;
+    wire [26:0] t25 = {2'b0, s2_sig_ff, 1'b0} + dhx;
+    wire [26:0] t35 = {2'b0, s2_sig_ff, 1'b0} + s2x + dhx;
+
+    wire q_lt05 = (ymag < t05);
+    wire q_lt15 = (ymag < t15);
+    wire q_lt25 = (ymag < t25);
+    wire q_lt35 = (ymag < t35);
+    wire signed [3:0] qmag = (cnt == 5'd0) ?
+          (q_lt05 ? 4'sd0 : q_lt15 ? 4'sd1 : q_lt25 ? 4'sd2 : q_lt35 ? 4'sd3 : 4'sd4) :
+          (q_lt05 ? 4'sd0 : q_lt15 ? 4'sd1 : 4'sd2);
+    wire signed [3:0] qs   = p_neg ? -qmag : qmag;
+
+    wire signed [26:0] d_ext = $signed({3'b0, s2_sig_ff});
+    wire signed [26:0] qd = (qs ==  4'sd1) ?  d_ext                  :
+                            (qs ==  4'sd2) ? (d_ext <<< 1)           :
+                            (qs ==  4'sd3) ? (d_ext + (d_ext <<< 1)) :
+                            (qs ==  4'sd4) ? (d_ext <<< 2)           :
+                            (qs == -4'sd1) ? -d_ext                  :
+                            (qs == -4'sd2) ? -(d_ext <<< 1)          :
+                                            27'sd0;
+
+    wire signed [27:0] p_next  = {{1{y4[26]}}, y4} - {{1{qd[26]}}, qd};
+    wire signed [26:0] quo_q   = quo_ff <<< 2;
+    wire signed [26:0] qs_ext  = $signed({{23{qs[3]}}, qs});
+    wire signed [26:0] quo_next = quo_q + qs_ext;
+
+    // 收尾余数符号修正 (P<0 => 商 -1ulp, 余数 +d), 恒为零除时 sticky=0
+    wire [24:0] rem_plus_d = rem_ff + {1'b0, s2_sig_ff};
+    wire [23:0] frac_sub1  = quo_ff[23:0] - 24'd1;
+    wire [24:0] div_rem    = p_neg ? rem_plus_d : rem_ff;   // 最终余数(非零=>sticky)
+    wire [23:0] div_frac   = p_neg ? frac_sub1 : quo_ff[23:0];
+    wire [24:0] quo        = {1'b1, div_frac};              // 25 bit 商: 1.frac
     wire        div_sticky = |div_rem;
 
     // ---------------------------------------------------------------
@@ -231,10 +268,10 @@ module fdiv #(
 
     // ---------------------------------------------------------------
     // 状态机与写回
-    //   E0  启动: 锁存操作数, rem0 = a_shifted - sig_b
-    //   E1..E24  24 拍逐位除法
-    //   E25  完成拍: 组合计算 result_combo, 置 wb_valid_r
-    //   E26  wb 呈现拍(仲裁器取走), 释放 busy
+    //   E0  启动: 锁存操作数, rem0 = a_shifted - sig_b (P0), cnt=0
+    //   E1..E12  12 拍 radix-4 SRT (每拍 2 bit, cnt 0..11)
+    //   E13  收尾拍: 余数符号修正 + 组合计算 result_combo, 置 wb_valid_r
+    //   E14  wb 呈现拍(仲裁器取走), 释放 busy
     // ---------------------------------------------------------------
     reg                wb_valid_r;
     reg [ID_WIDTH-1:0] wb_id_r;
@@ -258,7 +295,7 @@ module fdiv #(
                 busy        <= 1'b1;
                 cnt         <= 5'd0;
                 rem_ff      <= a_shifted_in - {1'b0, s2_sig};
-                quo_ff      <= 24'd0;
+                quo_ff      <= 27'd0;
                 res_sign_ff <= s1_sign ^ s2_sign;
                 s1_exp_ff   <= s1_exp ;
                 s2_exp_ff   <= s2_exp ;
@@ -278,16 +315,16 @@ module fdiv #(
                 if (wb_valid_r) begin
                     // wb 已呈现一拍, 释放 busy, 允许下一条 fdiv
                     busy <= 1'b0;
-                end else if (cnt == 5'd24) begin
-                    // 24 步除法结束, 组合结果写入 wb 寄存器
+                end else if (cnt == 5'd12) begin
+                    // 12 步 radix-4 迭代结束, 修正余数符号后组合结果写入 wb
                     wb_valid_r  <= 1'b1;
                     wb_id_r     <= id_ff;
                     wb_result_r <= result_combo;
                     wb_fflags_r <= fflags_combo;
                 end else begin
                     cnt    <= cnt + 5'd1;
-                    rem_ff <= step_rem;
-                    quo_ff <= step_quo;
+                    rem_ff <= p_next[24:0];
+                    quo_ff <= quo_next;
                 end
             end
         end

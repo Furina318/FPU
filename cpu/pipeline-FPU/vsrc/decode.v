@@ -224,8 +224,6 @@ module decode (
     wire inst_fmv_x_w    = (opcode_06_00 == 7'h53) & (opcode_14_12 == 3'b000) & (rs2 == 5'h00) & (opcode_31_25 == 7'b1110000); // exu 短路: FPR->GPR
     wire inst_fclass_s   = (opcode_06_00 == 7'h53) & (opcode_14_12 == 3'b001) & (rs2 == 5'h00) & (opcode_31_25 == 7'b1110000);
 
-    // FPU 单元操作码(fpu_config.vh 编码); fdiv/fsqrt 暂不实现, 保持 0
-    // 注意: 必须 7 位, du_bus 的 fpu_op 字段为 [209:203], 宽度不匹配会使总线整体错位
     reg [ 6:0] fpu_op;
     always @(*) begin
         case (1'b1)
