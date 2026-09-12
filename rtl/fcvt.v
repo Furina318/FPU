@@ -161,6 +161,7 @@ module fcvt (
     reg        i2f_neg;
     reg [31:0] i2f_mag;
     reg [4:0]  i2f_msb;
+    reg [5:0]  _clz_sub;
     reg [23:0] i2f_sig;
     reg        i2f_g, i2f_r, i2f_s;
     reg        i2f_zero;
@@ -172,6 +173,7 @@ module fcvt (
         i2f_neg  = 1'b0;
         i2f_mag  = 32'd0;
         i2f_msb  = 5'd0;
+        _clz_sub = 6'd0;
         i2f_sig  = 24'd0;
         i2f_rs   = 0;
         i2f_g    = 1'b0;
@@ -194,7 +196,8 @@ module fcvt (
 
             if (!i2f_zero) begin
                 // msb 即最高有效位位置，同时也是无偏指数（值在 [2^msb, 2^(msb+1))）
-                i2f_msb = 5'd31 - clz32(i2f_mag);
+                _clz_sub = 6'd31 - clz32(i2f_mag);
+                i2f_msb = _clz_sub[4:0]; 
                 i2f_exp = {5'b0, i2f_msb}; // 无偏指数 = msb
 
                 if (i2f_msb >= 5'd23) begin

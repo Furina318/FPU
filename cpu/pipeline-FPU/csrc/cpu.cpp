@@ -24,7 +24,6 @@ extern Vysyx_25010030_npc *top;
 #ifdef NVBOARD
 #include <nvboard.h>
 #endif
-/********extern functions or variables********/
 
 extern void single_cycle(void);
 extern VerilatedVcdC *tfp;
@@ -97,8 +96,6 @@ static void dump_retired(void) {
 #ifdef CONFIG_DIFFTEST
 extern void difftest_step(vaddr_t pc, vaddr_t npc);
 extern void difftest_skip_ref();
-// extern void update_cpu_state(CPU_state *cpu);
-// extern void (*ref_difftest_regcpy)(void *dut, bool direction);
 #endif
 
 int run_time = 0;
@@ -120,48 +117,12 @@ static struct {
 
 //==================================== 统计与性能计数 =============================//
 uint64_t cycle_sum;
-// #define icache_total_access  top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__u_icache__DOT__icache_total_access
-// #define icache_hit           top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__u_icache__DOT__icache_hit
-// #define icache_miss          top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__u_icache__DOT__icache_miss
 static void statistic() {
     Log("total guest instructions = %lu", g_nr_guest_inst);
     uint64_t total = g_nr_guest_inst;
     printf("\033[33mIPC = %lf\033[0m\n", (double)g_nr_guest_inst / cycle_sum);
     printf("\033[33m平均每条指令执行周期: %lf\033[0m\n", (double)cycle_sum / g_nr_guest_inst);
-    // printf("+--------------------------+------------+-----------+\n");
-    // printf("| iCache 统计信息          | 数量       | 占比 (%%)  |\n");
-    // printf("+--------------------------+------------+-----------+\n");
-    // printf("| 总访问次数               | %10" PRIu64 " |     -     |\n", icache_total_access);
-    // printf("| 命中次数                 | %10" PRIu64 " | %7.2f %% |\n", 
-    //        icache_hit, 
-    //        icache_total_access ? (double)icache_hit / icache_total_access * 100 : 0.0);
-    // printf("| 未命中次数               | %10" PRIu64 " | %7.2f %% |\n", 
-    //        icache_miss, 
-    //        icache_total_access ? (double)icache_miss / icache_total_access * 100 : 0.0);
-    // printf("| 平均每条指令缓存访问次数 |            | %7.2f   |\n", 
-    //        total ? (double)icache_total_access / total : 0.0);
-    // printf("+--------------------------+------------+-----------+\n");
 }
-
-//===============================================================================//
-
-// static void check_resp() {
-// #ifdef YSYXSOC
-// #define lsu_rresp top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__axi_lsu_rresp
-// #define lsu_bresp top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__axi_lsu_bresp
-// #define ifu_rresp top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__axi_if_rresp
-// #else
-// #define lsu_rresp top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__axi_lsu_rresp
-// #define lsu_bresp top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__axi_lsu_bresp
-// #define ifu_rresp top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__axi_if_rresp
-// // #define clint_ar_addr top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__clint_araddr
-// // #define clint_ar_valid top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__clint_arvalid
-// #endif
-// if(lsu_rresp != 0) printf("LSU <R> CHANNEL ACCESS FAULT!\n");
-// if(lsu_bresp != 0) printf("LSU <W> CHANNEL ACCESS FAULT!\n");
-// if(ifu_rresp != 0) printf("IFU <R> CHANNEL ACCESS FAULT!\n");
-// // if((clint_ar_addr <= 0x02000000 || clint_ar_addr >= 0x0200ffff) && clint_ar_valid) printf("CLINT <R> CHANNEL ACCESS FAULLT!\n");
-// }
 
 uint64_t last_pc;
 static void trace_and_difftest();
@@ -210,8 +171,6 @@ static void execute_once() {
     if(run_time <= start_time) run_time++;
 
     #ifdef YSYXSOC
-    PCSet.next_pc = top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__ifu_pc;
-    PCSet.ninst = top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__icache_inst;
     #else
     PCSet.next_pc = top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__ifu_pc;
     PCSet.ninst = top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__icache_inst;
@@ -273,8 +232,6 @@ static void trace_and_difftest() {
 #endif
 
     if(wbu_valid){
-      // if(first_step) first_step = false;
-      // else difftest_step(diff_pc, diff_pc);
       difftest_step(diff_pc, diff_pc);
     }
 #endif
@@ -303,11 +260,7 @@ static void trace_and_difftest() {
 static void execute(uint64_t n) {
     
     for (; n > 0; n--) {
-        // last_pc = top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__ifu_pc;
         execute_once();
-        // if(!top->reset && last_pc != top->rootp->ysyxSoCFull__DOT__asic__DOT__cpu__DOT__cpu__DOT__ifu_pc) g_nr_guest_inst++;
-        // g_nr_guest_inst++;
-        // trace_and_difftest();
         if (npc_state.state != NPC_RUNNING){
             break;
         }
@@ -346,9 +299,7 @@ void cpu_exec(uint64_t n) {
                 npc_state.halt_pc);
             Log("halt_ret = %d", npc_state.halt_ret);
             fflush(stdout);
-                // die();
         case NPC_QUIT:
             statistic();
-            // die();
     }
 }

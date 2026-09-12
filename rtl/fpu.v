@@ -50,6 +50,7 @@ module fpu #(
     wire is_fcvt = (fpu_op[6:4] == 3'b011);
 
     wire is_fdiv  = (fpu_op == `FDIV_S );
+    wire is_fsqrt = (fpu_op == `FSQRT_S);
 
 
     wire               sign_a, sign_b, sign_c;
@@ -249,34 +250,66 @@ module fpu #(
         .wb_fflags   (fdiv_fflags    )
     );
 
+    // 平方根单元
+    wire        fsqrt_wb_valid;
+    wire [ID_WIDTH-1:0] fsqrt_wb_id;
+    wire [31:0] fsqrt_result;
+    wire [ 4:0] fsqrt_fflags;
+
+    fsqrt #(
+        .ID_WIDTH (ID_WIDTH)
+    ) u_fsqrt (
+        .clk         (clk            ),
+        .rst         (rst            ),
+        .issue_valid (valid & is_fsqrt),
+        .issue_id    (fpu_id         ),
+        .rm          (rm             ),
+        .s1_sign     (sign_a         ),
+        .s1_exp      (exp_a          ),
+        .s1_sig      (sig_a          ),
+        .s1_zero     (zero_a         ),
+        .s1_inf      (inf_a          ),
+        .s1_nan      (nan_a          ),
+        .s1_snan     (snan_a         ),
+        .flush       (flush          ),
+        .flush_id    (flush_id       ),
+        .wb_valid    (fsqrt_wb_valid ),
+        .wb_id       (fsqrt_wb_id    ),
+        .wb_result   (fsqrt_result   ),
+        .wb_fflags   (fsqrt_fflags   )
+    );
+
     // 写回仲裁,年龄优先
-    wire [3:0] arb_valid = {fdiv_wb_valid, fcvt_wb_valid, fquick_wb_valid, fma_wb_valid};
+    wire [4:0] arb_valid = {fsqrt_wb_valid, fdiv_wb_valid, fcvt_wb_valid, fquick_wb_valid, fma_wb_valid};
 
     wire fquick_wb_valid = valid & is_fquick & ~flush;
     wire fcvt_wb_valid   = valid & is_fcvt   & ~flush;
 
-    wire [31:0]      arb_data  [0:3];
-    wire [4:0]       arb_fflags[0:3];
-    wire [ID_WIDTH-1:0] arb_id [0:3];
+    wire [31:0]      arb_data  [0:4];
+    wire [4:0]       arb_fflags[0:4];
+    wire [ID_WIDTH-1:0] arb_id [0:4];
 
     assign arb_data[0]   = fma_result;
     assign arb_data[1]   = fquick_result;
     assign arb_data[2]   = fcvt_result;
     assign arb_data[3]   = fdiv_result;
+    assign arb_data[4]   = fsqrt_result;
 
     assign arb_fflags[0] = fma_fflags;
     assign arb_fflags[1] = fquick_fflags_final;
     assign arb_fflags[2] = fcvt_fflags;
     assign arb_fflags[3] = fdiv_fflags;
+    assign arb_fflags[4] = fsqrt_fflags;
 
     assign arb_id[0] = fma_wb_id;
     assign arb_id[1] = fpu_id;
     assign arb_id[2] = fpu_id;
     assign arb_id[3] = fdiv_wb_id;
+    assign arb_id[4] = fsqrt_wb_id;
 
-    wire [3:0] arb_grant_unused;
+    wire [4:0] arb_grant_unused;
     fpu_arbiter #(
-        .NUM_PORTS  (4),
+        .NUM_PORTS  (5),
         .ID_WIDTH   (ID_WIDTH),
         .DATA_WIDTH (32)
     ) u_fpu_arbiter (

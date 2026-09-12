@@ -249,13 +249,14 @@ module decode (
             inst_fcvt_s_wu: fpu_op = `FCVT_S_WU;
             inst_fmv_w_x  : fpu_op = `FMV_W_X;
             inst_fmv_x_w  : fpu_op = `FMV_X_W;
-            inst_fdiv_s   : fpu_op = `FDIV_S; 
+            inst_fdiv_s   : fpu_op = `FDIV_S;
+            inst_fsqrt_s  : fpu_op = `FSQRT_S;
             default       : fpu_op = 7'd0;
         endcase
     end
 
     // 送入 fpu 单元的指令(不含 fdiv/fsqrt/fmv 短路)
-    wire op_fpu = inst_fadd_s   | inst_sub_s     | inst_fmul_s   | inst_fdiv_s   |
+    wire op_fpu = inst_fadd_s   | inst_sub_s     | inst_fmul_s   | inst_fdiv_s  | inst_fsqrt_s  |
                   inst_fmadd_s  | inst_fmsub_s   | inst_fnmadd_s | inst_fnmsub_s |
                   inst_fclass_s | inst_fmin_s    | inst_fmax_s   |
                   inst_flt_s    | inst_feq_s     | inst_fle_s    |

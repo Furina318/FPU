@@ -9,9 +9,9 @@ RTL_SRCS  = $(wildcard $(RTL_DIR)/*.v)
 
 IVERILOG_FLAGS = -g2012 -Wall -I$(RTL_DIR) -I.
 
-.PHONY: all fma fpu fdiv clean
+.PHONY: all fma fpu fdiv fsqrt clean
 
-all: tb_fma_unit tb_fpu tb_quick fdiv
+all: tb_fma_unit tb_fpu tb_quick fdiv fsqrt
 
 fma: tb_fma_unit
 fpu: tb_fpu
@@ -21,6 +21,11 @@ fdiv:
 	@mkdir -p $(BUILD_DIR)
 	$(IVERILOG) $(IVERILOG_FLAGS) -o $(BUILD_DIR)/tb_fdiv.out $(RTL_SRCS) tb_fdiv.v
 	$(VVP) $(BUILD_DIR)/tb_fdiv.out
+
+fsqrt:
+	@mkdir -p $(BUILD_DIR)
+	$(IVERILOG) $(IVERILOG_FLAGS) -o $(BUILD_DIR)/tb_fsqrt.out $(RTL_SRCS) tb_fsqrt.v
+	$(VVP) $(BUILD_DIR)/tb_fsqrt.out
 
 tb_fma_unit tb_fpu tb_quick:
 	@mkdir -p $(BUILD_DIR)

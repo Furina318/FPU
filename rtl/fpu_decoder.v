@@ -49,7 +49,8 @@ module fpu_decoder (
     endfunction
 
     // 23 位尾数前导零 = 尾数放到 32 位低 23 位(高位补 9 个 0)的 CLZ 减 9
-    wire [4:0] lead_zero = clz32({9'b0, f}) - 5'd9;
+    wire [5:0] _clz_sub = clz32({9'b0, f}) - 6'd9;
+    wire [4:0] lead_zero = _clz_sub[4:0]; // 预期结果 [0,23]，无借位
 
     // normal 有效数：1.fraction
     wire [23:0] sig_normal = {1'b1, f};

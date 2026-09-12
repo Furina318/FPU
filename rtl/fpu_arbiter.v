@@ -46,19 +46,19 @@ module fpu_arbiter #(
     integer j;
     reg         best_valid;
     reg [ID_WIDTH-1:0] best_id;
-    reg [1:0]   best_idx;
+    reg [2:0]   best_idx;
 
     always @(*) begin
         best_valid = 1'b0;
         best_id    = {ID_WIDTH{1'b0}};
-        best_idx   = 2'b0;
+        best_idx   = 3'b0;
 
         for (j = 0; j < NUM_PORTS; j = j + 1) begin
             if (req[j]) begin
                 if (!best_valid || is_older(req_id_i[j], best_id)) begin
                     best_valid = 1'b1;
                     best_id    = req_id_i[j];
-                    best_idx   = j[1:0];
+                    best_idx   = j[2:0];
                 end
             end
         end

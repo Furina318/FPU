@@ -89,7 +89,7 @@ module fdiv #(
     //   商位带符号, 在线累积(每拍左移 2 位 + 插值), 收尾拍做余数符号
     //   修正: P<0 => 商 -1ulp、余数 +d, 与恢复除法结果(floor+sticky)逐位一致。
     // ---------------------------------------------------------------
-    wire signed [26:0] rem_s = rem_ff;                       // 符号扩展 27b
+    wire signed [26:0] rem_s = $signed({{2{rem_ff[24]}}, rem_ff}); // 符号扩展 27b
     wire signed [26:0] y4    = rem_s <<< 2;                  // 4P
     wire        p_neg = rem_ff[24];
     wire [26:0] ymag  = p_neg ? (27'd0 - y4[26:0]) : y4[26:0];
