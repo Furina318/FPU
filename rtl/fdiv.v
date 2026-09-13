@@ -32,8 +32,8 @@ module fdiv #(
     wire fstart = issue_valid & ~busy & ~flush;
 
     reg        busy;          // 运算中
-    reg [ 4:0] cnt;           // 除法步计数 (0..11: radix-4 迭代; 12: 收尾)
-    reg signed [24:0] rem_ff; // 部分余数 P, |P| <= 2d/3 (首步后)
+    reg [ 4:0] cnt;           // 除法步计数 0..12
+    reg signed [24:0] rem_ff; // 部分余数 P
     reg signed [26:0] quo_ff; // 商小数在线累积 (12 个 radix-4 数字)
 
     // 操作数锁存

@@ -320,9 +320,7 @@ module fma_unit #(
         end
     end
 
-    // ---------------------------------------------------------------
-    // Stage1: carry-save merge, alignment, sticky
-    // ---------------------------------------------------------------
+    // Stage1
     wire [68:0] product_sum = {1'b0, p0_s} + {p0_cout2, 1'b0};
     wire [47:0] prod = product_sum[47:0];
 
@@ -465,9 +463,7 @@ module fma_unit #(
     wire far_sticky = (sh_p > 51) ? (prod != 48'd0) : 1'b0;
     wire far_sticky_c = (sh_c > 51) ? (p0_c_sig != 24'd0) : 1'b0;
 
-    // ---------------------------------------------------------------
-    // Stage2: signed add, abs, CLZ
-    // ---------------------------------------------------------------
+    // Stage2
     wire signed [66:0] p_signed = p1_p_sign ? -$signed({3'b000, p1_p_fixed})
                                             :  $signed({3'b000, p1_p_fixed});
     wire signed [66:0] c_signed = p1_c_sign ? -$signed({3'b000, p1_c_fixed})
@@ -552,9 +548,7 @@ module fma_unit #(
     wire deep_pos    = (p1_far_sticky   & (p1_p_sign == acc_sign)) |
                        (p1_far_sticky_c & (p1_c_sign == acc_sign));
 
-    // ---------------------------------------------------------------
     // Stage2 -> Stage3 pipeline
-    // ---------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
             p2_valid     <= 1'b0;
@@ -591,9 +585,7 @@ module fma_unit #(
         end
     end
 
-    // ---------------------------------------------------------------
-    // Stage3 (output): normalize / subnormal / round / pack
-    // ---------------------------------------------------------------
+    // Stage3
     function automatic or_low128;
         input [127:0] v;
         input [7:0]   cnt;
@@ -663,8 +655,7 @@ module fma_unit #(
         end
         if (sub_inexact) begin
             sub_fflags[`NX] = 1'b1;
-            // RISC-V tininess detected after rounding:
-            // 用"指数无界"的舍入结果判定 tiny (norm_exp_final 由 norm 路径计算)
+            // 用"指数无界"的舍入结果判定 tiny 
             if (norm_exp_final < -13'sd126)
                 sub_fflags[`UF] = 1'b1;
         end

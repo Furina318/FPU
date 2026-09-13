@@ -147,13 +147,13 @@ module fcvt (
     // 浮点->整数的舍入
     wire f2i_round_up, f2i_inexact_frm;
     frm u_frm_f2i (
-        .rm      (rm),
-        .sign    (f2i_neg),
-        .lsb     (f2i_mag[0]),
-        .guard   (f2i_g),
-        .round   (f2i_r),
-        .sticky  (f2i_s),
-        .round_up(f2i_round_up),
+        .rm      (rm             ),
+        .sign    (f2i_neg        ),
+        .lsb     (f2i_mag[0]     ),
+        .guard   (f2i_g          ),
+        .round   (f2i_r          ),
+        .sticky  (f2i_s          ),
+        .round_up(f2i_round_up   ),
         .inexact (f2i_inexact_frm)
     );
 
@@ -301,7 +301,7 @@ module fcvt (
             if (i2f_zero) begin
                 result = 32'h00000000; // 整数 0 不存在 -0
             end else begin
-                // 打包 IEEE-754：符号 | 无偏指数 + bias(127) | 有效数小数部分
+                // 符号 | 无偏指数 + bias(127) | 有效数小数部分
                 result = {i2f_neg, i2f_exp_final[7:0] + 8'd127, i2f_sig_final[22:0]};
             end
             fflags[`NX] = i2f_inexact;
