@@ -213,6 +213,16 @@ module tb_fsqrt;
         run_all_rm(32'h00700000, 32'h1fef7751, 32'h1fef7750, 32'h1fef7750, 32'h1fef7751, 32'h1fef7751,
                    5'd1, 5'd1, 5'd1, 5'd1, 5'd1);                    // 次正规(奇指数路径)
 
+        // 次正规/normal 根估计逼近 2.0 的临界输入: q0=4 且 Y/W 瞬态达 2^25/2^26 (回归: 寄存器回绕)
+        run_all_rm(32'h007fffff, 32'h1fffffff, 32'h1ffffffe, 32'h1ffffffe, 32'h1fffffff, 32'h1fffffff,
+                   5'd1, 5'd1, 5'd1, 5'd1, 5'd1);                    // 最大次正规 (q0=4)
+        run_all_rm(32'h007ffffe, 32'h1ffffffe, 32'h1ffffffd, 32'h1ffffffd, 32'h1ffffffe, 32'h1ffffffe,
+                   5'd1, 5'd1, 5'd1, 5'd1, 5'd1);                    // 最大次正规-1
+        run_all_rm(32'h7f7fffff, 32'h5f7fffff, 32'h5f7fffff, 32'h5f7fffff, 32'h5f800000, 32'h5f7fffff,
+                   5'd1, 5'd1, 5'd1, 5'd1, 5'd1);                    // 最大 normal (q0=4)
+        run_all_rm(32'h00ffffff, 32'h203504f3, 32'h203504f2, 32'h203504f2, 32'h203504f3, 32'h203504f3,
+                   5'd1, 5'd1, 5'd1, 5'd1, 5'd1);                    // normal 奇指数边界
+
         // 特殊值
         run_all_rm(32'h00000000, 32'h00000000, 32'h00000000, 32'h00000000, 32'h00000000, 32'h00000000,
                    5'd0, 5'd0, 5'd0, 5'd0, 5'd0);                    // +0

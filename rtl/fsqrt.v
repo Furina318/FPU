@@ -47,8 +47,8 @@ module fsqrt #(
     reg        busy;
     reg [ 4:0] cnt;
     reg signed [26:0] P_ff;      // 部分余数, |P| <= ~1.1*2^25
-    reg [24:0] Y_ff;             // 根在线累积 (Q24), [2^24,2^25)
-    reg [25:0] W_ff;             // 双根, [2^25,2^26)
+    reg [25:0] Y_ff;             // 根在线累积 (Q24), [2^24,2^25], 瞬态可达 2^25
+    reg [26:0] W_ff;             // 双根, [2^25,2^26], 瞬态可达 2^26
 
     reg [24:0] m25_ff;           // {s1_sig,0} 或 {0,s1_sig} 的 25bit 尾数
     reg signed [8:0] res_exp_ff; // 结果指数 = s1_exp >> 1 (算术)
@@ -68,7 +68,8 @@ module fsqrt #(
     wire signed [28:0] t4  = t_s <<< 2;                  // 4P
     wire        [ 4:0] sh  = 5'd22 - (cnt << 1);         // 22-2cnt, 0..22
     wire signed [ 6:0] t_h = t4[28:22];                  // 4P >> 22
-    wire        [ 4:0] w_h = W_ff[25:21];                // W  >> 21
+    // w_h = W >> 21; 根估计瞬态可达 2.0 时 W=2^26, w_h=32 饱和到 31
+    wire        [ 4:0] w_h = W_ff[26] ? 5'd31 : W_ff[25:21];
 
     // 选位表 (q ∈ {-2..2}), 仅 cnt>0 使用
     reg signed [3:0] qn;
@@ -109,8 +110,8 @@ module fsqrt #(
     wire signed [25:0] qs26 = {{22{qs[3]}}, qs};
     wire signed [25:0] qinc = qs26 <<< sh;
 
-    // q*W (W <= 2^26-1, 结果 <= 4*2^26 => 30bit 有符号)
-    wire signed [29:0] Wp30 = {4'b0000, W_ff};
+    // q*W (W <= 2^26, 结果 <= 4*2^26 => 30bit 有符号)
+    wire signed [29:0] Wp30 = {3'b000, W_ff};
     wire signed [29:0] qW = (qs ==  4'sd1) ?  Wp30             :
                             (qs ==  4'sd2) ? (Wp30 <<< 1)      :
                             (qs ==  4'sd3) ? (Wp30 + (Wp30 <<< 1)) :
@@ -133,11 +134,11 @@ module fsqrt #(
     wire signed [29:0] pn30 = {t4[28], t4} - qW - q2t;   // 30bit
     wire signed [26:0] p_next = pn30[26:0];
 
-    // Y / W 在线累积
-    wire signed [26:0] Yn = $signed({2'b00, Y_ff}) + qinc;
-    wire signed [26:0] Wn = $signed({1'b0, W_ff})  + ($signed({1'b0, qinc}) <<< 1);
-    wire [24:0] y_next = Yn[24:0];
-    wire [25:0] w_next = Wn[25:0];
+    // Y / W 在线累积 (Y_ff 26bit, W_ff 27bit, 含余量容纳 q0=4 瞬态)
+    wire signed [27:0] Yn = $signed({2'b00, Y_ff}) + qinc;
+    wire signed [28:0] Wn = $signed({2'b00, W_ff}) + ($signed({2'b00, qinc}) <<< 1);
+    wire [25:0] y_next = Yn[25:0];
+    wire [26:0] w_next = Wn[26:0];
 
     // ---------------------------------------------------------------
     // 收尾: floor 修正 + 五模式舍入 (√V 无平局, RMM≡RNE)
