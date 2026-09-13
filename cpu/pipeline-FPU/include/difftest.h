@@ -22,6 +22,8 @@ typedef struct {
     word_t gpr[32];
     vaddr_t pc;
     riscv32_CSRs csr;
+    word_t fpr[32];
+    word_t fcsr;
 }CPU_state;
 void init_difftest(char *ref_so_file, long img_size, int port);
 void update_cpu_state(CPU_state *cpu);

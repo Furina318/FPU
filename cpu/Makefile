@@ -191,14 +191,16 @@ LIBS += -lSDL2_image
 LDFLAGS += $(LIBS)
 
 ifeq ($(diff), 1)
-DIFF_REF_PATH = $(NEMU_HOME)/build
-# DIFF_REF_PATH = /home/furina/ysyx-workbench/nemu/build
-DIFF_REF_SO = $(DIFF_REF_PATH)/riscv32-nemu-interpreter-so
+# spike 参考实现 .so(在 FPU 工程内构建, 不修改 NEMU 源码)
+DIFF_REF_SO = $(NEW_CORE_HOME)/build/riscv32-spike-so
 ARGS_DIFF = --diff=$(DIFF_REF_SO)
 endif
 
+# NEMU_HOME 仅用于读取预编译的 riscv-isa-sim 静态库(只读)
+# NEMU_HOME ?= $(abspath $(NEW_CORE_HOME)/../../ysyx-workbench/nemu)
+
 $(DIFF_REF_SO):
-	$(MAKE) -s -C $(DIFF_REF_PATH)
+	$(MAKE) -s -C $(NEW_CORE_HOME)/tools/spike-diff NEW_CORE_HOME=$(NEW_CORE_HOME)
 
 # 参数设置
 

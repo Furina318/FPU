@@ -16,6 +16,9 @@ extern VysyxSoCFull *top;
 extern Vysyx_25010030_npc *top;
 #define top_pc top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__ifu_pc
 #define top_regs top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__regs
+#define top_fp_regs top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__fp_regs
+#define top_fp_frm  top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__frm_r
+#define top_fp_fflags top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__fflags_r
 // #define top_mepc top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__mepc
 // #define top_mtvec top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__mtvec
 
@@ -103,13 +106,19 @@ void init_difftest(char *ref_so_file, long img_size, int port)
     ref_difftest_init(port);
     ref_difftest_memcpy(RESET_VECTOR, guest_to_host(RESET_VECTOR), img_size, DIFFTEST_TO_REF);
 
+    // 复位同步: spike/REF 默认 pc 为 DEFAULT_RSTVEC(0x1000), 必须把 DUT 复位状态
+    // (pc=CONFIG_MBASE, gpr=fpr=0, fcsr=0) 同步给 REF, 否则首条指令即失配
+    // spike reset 不初始化 FPR/fcsr(均为垃圾值), 必须显式清零;
+    // 写 frm/fflags 需要 mstatus.FS!=Off, diff_set_regs 内部已处理
     CPU_state ref_r;
     ref_r.pc = CONFIG_MBASE;//复位的时候默认为npc架构
     last_ref_pc = CONFIG_MBASE;
     for(int i = 0; i < REG_NUM; i++)
         ref_r.gpr[i] = 0;
-    // ref_r.csr.mstatus = 0x1800;
-    // ref_r.csr.mcause = 0xb;
+    for(int i = 0; i < 32; i++)
+        ref_r.fpr[i] = 0;
+    ref_r.fcsr = 0;
+    ref_difftest_regcpy(&ref_r, DIFFTEST_TO_REF);
 }
 
 
@@ -134,6 +143,24 @@ bool isa_difftest_checkregs(CPU_state *ref_r, vaddr_t pc)
                  ANSI_NONE "  dut:0x%08x   ref:0x%08x\n", ref_regs[i], top_regs[i], ref_r->gpr[i]);
             success = false;
         }
+
+    //check floating point registers
+    for(int i = 0; i < 32; i++)
+        if(top_fp_regs[i] != ref_r->fpr[i])
+        {
+            _Log(ANSI_FG_YELLOW "[difftest]" ANSI_NONE   ANSI_FG_RED "f%d" 
+                 ANSI_NONE "  dut:0x%08x   ref:0x%08x\n", i, top_fp_regs[i], ref_r->fpr[i]);
+            success = false;
+        }
+
+    //check fcsr (frm[7:5] + fflags[4:0])
+    uint32_t dut_fcsr = (top_fp_frm << 5) | top_fp_fflags;
+    if(dut_fcsr != ref_r->fcsr)
+    {
+        _Log(ANSI_FG_YELLOW "[difftest]" ANSI_NONE   ANSI_FG_RED "fcsr" 
+             ANSI_NONE "  dut:0x%08x   ref:0x%08x\n", dut_fcsr, ref_r->fcsr);
+        success = false;
+    }
     
     return success;
 }
@@ -150,6 +177,13 @@ static void checkregs(CPU_state *ref, vaddr_t pc)
         {
             printf("%s:\t0x%08x\t0x%08x\n", ref_regs[i], top_regs[i], ref->gpr[i]);
         }
+
+        printf("\033[33m[DUT->FPR]\t\t[REF->FPR]\033[0m\n");
+        for(int i = 0; i < 32; i++)
+        {
+            printf("f%d:\t0x%08x\t0x%08x\n", i, top_fp_regs[i], ref->fpr[i]);
+        }
+        printf("fcsr:\t0x%08x\t0x%08x\n", (top_fp_frm << 5) | top_fp_fflags, ref->fcsr);
         // printf("mepc   :\t0x%08x\t0x%08x\n", top_mepc, ref->csr.mepc);
         // printf("mtvec  :\t0x%08x\t0x%08x\n", top_mtvec, ref->csr.mtvec);
         // printf("mcause :\t0x%08x\t0x%08x\n", 0xb, ref->csr.mcause);
@@ -165,6 +199,9 @@ void difftest_step(vaddr_t pc, vaddr_t npc)
         CPU_state ref_r;
         for(int i = 0; i < REG_NUM; i++)
             ref_r.gpr[i] = top_regs[i];
+        for(int i = 0; i < 32; i++)
+            ref_r.fpr[i] = top_fp_regs[i];
+        ref_r.fcsr = (top_fp_frm << 5) | top_fp_fflags;
         ref_r.pc = pc + 4;
         ref_difftest_regcpy(&ref_r, DIFFTEST_TO_REF);
         last_ref_pc = pc + 4;

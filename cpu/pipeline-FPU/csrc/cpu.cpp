@@ -49,6 +49,9 @@ static struct {
     uint32_t wbu_valid; uint32_t wbu_pc; uint32_t wbu_inst;
     uint32_t x_rd; uint32_t x_gpr_we; uint32_t x_result;
     uint32_t x_pc; uint32_t x_inst;
+    uint32_t wbu_fflags; uint32_t wbu_fpu;
+    uint32_t awvalid; uint32_t awaddr; uint32_t skip;
+    uint32_t lsu_awv; uint32_t lsu_awaddr;
 } s_cyc[48];
 static int s_cyc_cnt = 0;
 static void trace_cycle(void) {
@@ -64,7 +67,12 @@ static void trace_cycle(void) {
         top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__gpr_we,
         top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__result,
         top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__pc,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__inst
+        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__inst,
+        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__fflags_r,
+        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__op_fpu,
+        top->rootp->ysyx_25010030_npc__DOT__io_master_awvalid,
+        top->rootp->ysyx_25010030_npc__DOT__io_master_awaddr,
+        0
     };
     s_cyc_cnt++;
 }
@@ -73,11 +81,13 @@ static void dump_cycles(void) {
     int start = s_cyc_cnt < CYCLE_RING ? 0 : s_cyc_cnt - CYCLE_RING;
     for (int i = 0; i < n; i++) {
         int idx = (start + i) % CYCLE_RING;
-        printf("[CYC] cyc=%d ifu=0x%08x exu_valid=%d wbu_v=%d wbu_pc=0x%08x wbu_inst=0x%08x rd=%02d gpr_we=%d result=0x%08x xpc=0x%08x xinst=0x%08x\n",
+        printf("[CYC] cyc=%d ifu=0x%08x exu_valid=%d wbu_v=%d wbu_pc=0x%08x wbu_inst=0x%08x rd=%02d gpr_we=%d result=0x%08x xpc=0x%08x xinst=0x%08x fflags=%02x op_fpu=%d awv=%d awaddr=0x%08x\n",
                (int)s_cyc[idx].cyc, s_cyc[idx].ifu_pc, s_cyc[idx].exu_valid,
                s_cyc[idx].wbu_valid, s_cyc[idx].wbu_pc, s_cyc[idx].wbu_inst,
                (int)s_cyc[idx].x_rd, (int)s_cyc[idx].x_gpr_we, s_cyc[idx].x_result,
-               s_cyc[idx].x_pc, s_cyc[idx].x_inst);
+               s_cyc[idx].x_pc, s_cyc[idx].x_inst,
+               s_cyc[idx].wbu_fflags, s_cyc[idx].wbu_fpu,
+               s_cyc[idx].awvalid, s_cyc[idx].awaddr);
     }
     printf("[A0LAST] a0=0x%08x\n", s_a0_last);
     fflush(stdout);
@@ -227,11 +237,23 @@ static void trace_and_difftest() {
 
     if(((master_araddr < 0x80000000) | (master_araddr > 0x90000000)) & master_arvalid) {difftest_skip_ref();}
     if((is_clint_addr) & clint_arvalid ) {difftest_skip_ref();}
-    if(((master_awaddr < 0x80000000) | (master_awaddr > 0x90000000)) & master_awvalid) {difftest_skip_ref();}
+    // MMIO 范围(0xa0000000-0xbfffffff)的 store 经 store buffer 延迟晚到,
+    // 不能靠 awaddr 条件触发 skip(会晚到误触发双重 skip), 由下方 WBU 解码处理。
+    bool aw_is_dram = (master_awaddr >= 0x80000000) && (master_awaddr <= 0x90000000);
+    bool aw_is_mmio = (master_awaddr >= 0xa0000000) && (master_awaddr <= 0xbfffffff);
+    if(!(aw_is_dram || aw_is_mmio) && master_awvalid) {difftest_skip_ref();}
     // if((opcode == 0x73) & (csr_addr == 0x342 || csr_addr == 0x300 || csr_addr == 0x341)) {difftest_skip_ref();} // 忽略对mepc和mstatus的R操作
 #endif
 
     if(wbu_valid){
+      // 串口/设备的 store 会经 store buffer 延迟数周期才 drain 到 io_master,
+      // 无法靠上面的 awaddr 条件在 retire 时触发 skip。这里在 WBU 周期直接解码:
+      // S 型 store 的目标地址落在 MMIO 范围 (0xa0000000-0xbfffffff) 时,
+      // spike ref 没有该地址映射(store access fault), 必须跳过该指令。
+      vaddr_t wbu_vaddr = top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__regs[(top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu_inst >> 15) & 0x1f]
+        + ((((top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu_inst >> 25) & 0x7f) << 5) | ((top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu_inst >> 7) & 0x1f));
+      if(((top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu_inst & 0x7f) == 0x23)
+         && (wbu_vaddr >= 0xa0000000) && (wbu_vaddr <= 0xbfffffff)) {difftest_skip_ref();}
       difftest_step(diff_pc, diff_pc);
     }
 #endif

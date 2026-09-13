@@ -65,7 +65,7 @@ module fma_unit #(
     wire               b_snan = is_faddsub ? s1_snan : s2_snan;
 
     wire c_from_s3 = is_fmadd | is_fmsub | is_fnmadd | is_fnmsub;
-    wire c_neg     = is_fsub  | is_fmsub | is_fnmsub;
+    wire c_neg     = is_fsub  | is_fmsub | is_fnmadd;
     wire        c_sign = is_faddsub ? (is_fsub ? ~s2_sign : s2_sign) :
                          is_fmul    ? (s1_sign ^ s2_sign)            :
                          c_neg      ? ~s3_sign                       :
@@ -663,7 +663,9 @@ module fma_unit #(
         end
         if (sub_inexact) begin
             sub_fflags[`NX] = 1'b1;
-            if (~sub_to_normal)
+            // RISC-V tininess detected after rounding:
+            // 用"指数无界"的舍入结果判定 tiny (norm_exp_final 由 norm 路径计算)
+            if (norm_exp_final < -13'sd126)
                 sub_fflags[`UF] = 1'b1;
         end
     end
@@ -723,13 +725,20 @@ module fma_unit #(
                                  {1'b0, norm_sig_rounded[23:0]};
     wire signed [12:0] norm_exp_final = norm_exp + (norm_sig_rounded[24] ? 13'sd1 : 13'sd0);
 
+    wire overflow_inf = (p2_rm == `RNE) | (p2_rm == `RMM) |
+                        ((p2_rm == `RUP) & ~p2_acc_sign) |
+                        ((p2_rm == `RDN) &  p2_acc_sign);
+
     reg [31:0] norm_result;
     reg [4:0]  norm_fflags;
     always @(*) begin
         norm_result = 32'd0;
         norm_fflags = 5'd0;
         if (norm_exp_final > 13'sd127) begin
-            norm_result = {p2_acc_sign, 8'hFF, 23'd0};
+            if (overflow_inf)
+                norm_result = {p2_acc_sign, 8'hFF, 23'd0};
+            else
+                norm_result = {p2_acc_sign, 8'h7F, 23'h7FFFFF};
             norm_fflags[`OF] = 1'b1;
             norm_fflags[`NX] = 1'b1;
         end else begin

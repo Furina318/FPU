@@ -237,8 +237,9 @@ module fdiv #(
         sub_fflags = 5'd0;
         if (sub_inexact) begin
             sub_fflags[`NX] = 1'b1;
-            // after-rounding tininess：舍入进位到最小正规则不视为下溢
-            if (~sub_to_normal)
+            // RISC-V tininess detected after rounding:
+            // exp_norm 为"指数无界"(正规路径)舍入后的指数，tiny 当且仅当仍 < -126
+            if (exp_norm < -10'sd126)
                 sub_fflags[`UF] = 1'b1;
         end
     end

@@ -49,6 +49,10 @@ module fquick (
     wire b_nan = b_is_nan;
 
     wire invalid_nv = (a_is_nan & a_is_snan) | (b_is_nan & b_is_snan);
+    wire sign_inj   = fquick_op[8] | fquick_op[7] | fquick_op[6];
+    wire fclass_op  = fquick_op[2];
+    wire fmin_fmax  = fquick_op[1] | fquick_op[0];
+    wire minmax_nan_nv = invalid_nv | (a_nan & b_nan);
 
     // 绝对值比较：|a| < |b|
     // 注意: decode 对零操作数给出 exp=0/sig=0, 若直接比较会把零误判为
@@ -116,7 +120,10 @@ module fquick (
     wire [31:0] fsgnjn_result = {~b[31], a[30:0]};        // FSGNJN: 取 b 符号位的反
     wire [31:0] fsgnjx_result = {a[31] ^ b[31], a[30:0]}; // FSGNJX: a 和 b 符号位异或
 
-    assign fflags = {invalid_nv, 4'b0000};
+    assign fflags = sign_inj    ? 5'd0 :
+                   fclass_op   ? 5'd0 :
+                   fmin_fmax   ? {minmax_nan_nv, 4'b0000} :
+                                 {invalid_nv, 4'b0000};
     assign result = ({32{fquick_op[8]}} & fsgnjx_result) |
                     ({32{fquick_op[7]}} & fsgnjn_result) |
                     ({32{fquick_op[6]}} & fsgnj_result)  |

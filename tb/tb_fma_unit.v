@@ -133,11 +133,11 @@ module tb_fma_unit;
                                     $bitstoreal(single_to_double(a)),
                                     $bitstoreal(single_to_double(b)),
                                     $bitstoreal(single_to_double(c)), rm_in);
-                `FNMADD_S: $display("Issue [%0d] FNMADD  -(%g * %g) + %g rm=%0d", id_in,
+                `FNMADD_S: $display("Issue [%0d] FNMADD  -(%g * %g) - %g rm=%0d", id_in,
                                     $bitstoreal(single_to_double(a)),
                                     $bitstoreal(single_to_double(b)),
                                     $bitstoreal(single_to_double(c)), rm_in);
-                `FNMSUB_S: $display("Issue [%0d] FNMSUB  -(%g * %g) - %g rm=%0d", id_in,
+                `FNMSUB_S: $display("Issue [%0d] FNMSUB  -(%g * %g) + %g rm=%0d", id_in,
                                     $bitstoreal(single_to_double(a)),
                                     $bitstoreal(single_to_double(b)),
                                     $bitstoreal(single_to_double(c)), rm_in);
@@ -262,12 +262,12 @@ module tb_fma_unit;
         // FMSUB: 2 * 3 - 4 = 2
         run_one(`FMSUB_S, `RNE, 32'h40000000, 32'h40400000, 32'h40800000,
                 32'h40000000, 5'd0, 5'd6);
-        // FNMADD: -(2 * 3) + 4 = -2
+        // FNMADD: -(2 * 3) - 4 = -10
         run_one(`FNMADD_S, `RNE, 32'h40000000, 32'h40400000, 32'h40800000,
-                32'hc0000000, 5'd0, 5'd7);
-        // FNMSUB: -(2 * 3) - 4 = -10
+                32'hc1200000, 5'd0, 5'd7);
+        // FNMSUB: -(2 * 3) + 4 = -2
         run_one(`FNMSUB_S, `RNE, 32'h40000000, 32'h40400000, 32'h40800000,
-                32'hc1200000, 5'd0, 5'd8);
+                32'hc0000000, 5'd0, 5'd8);
         // FADD: 最小次正规数 + 自身 = 2 * min_sub
         run_one(`FADD_S, `RNE, 32'h00000001, 32'h00000001, 32'h00000000,
                 32'h00000002, 5'd0, 5'd9);

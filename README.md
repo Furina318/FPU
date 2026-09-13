@@ -32,3 +32,9 @@
 │   └── trm.c
 └── tb
 ```
+
+## Quick start 
+```
+cd cpu/ && make run TEST=想要运行的测试 diff=1（可选，开启spike差分测试difftest）
+可以通过menuconfig配置
+```
