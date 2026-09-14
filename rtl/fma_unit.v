@@ -214,6 +214,8 @@ module fma_unit #(
     reg         [26:0] p1_far_c;
     reg                p1_far_sticky;
     reg                p1_far_sticky_c;
+    reg                p1_p_off;
+    reg                p1_c_off;
     reg signed  [10:0] p1_base;
 
     // Stage2 流水寄存器
@@ -231,6 +233,7 @@ module fma_unit #(
     reg                p2_acc_zero;
     reg                p2_deep_sticky;
     reg                p2_deep_pos;
+    reg                p2_cross_exact;
     reg signed  [10:0] p2_base;
 
     function automatic is_younger;
@@ -280,6 +283,8 @@ module fma_unit #(
             p1_far_c     <= 27'd0;
             p1_far_sticky   <= 1'b0;
             p1_far_sticky_c <= 1'b0;
+            p1_p_off        <= 1'b0;
+            p1_c_off        <= 1'b0;
             p1_base      <= 11'sd0;
         end else begin
             p1_valid      <= p0_valid;
@@ -299,6 +304,8 @@ module fma_unit #(
             p1_far_c      <= far_v_c;
             p1_far_sticky   <= far_sticky;
             p1_far_sticky_c <= far_sticky_c;
+            p1_p_off        <= p_fully_off;
+            p1_c_off        <= c_fully_off;
             p1_base       <= L - 11'sd51;
 
             p0_valid      <= issue_valid;
@@ -337,124 +344,68 @@ module fma_unit #(
     wire [63:0] c_fixed = (sh_c >= 24) ? 64'd0 :
                           ({40'd0, p0_c_sig} >> sh_c[4:0]);
 
+
     function automatic [23:0] drop_p24;
         input [47:0] v;
-        input integer sh;
-        integer      j;
-        integer      i;
-        reg  [23:0]  f;
+        input [10:0] sh;
+        reg   [47:0] v_shl;
+        reg   [47:0] v_shr;
         begin
-            f = 24'd0;
-            for (j = 0; j < 48; j = j + 1) begin
-                if ((j < sh) && v[j]) begin
-                    i = j + 24 - sh;
-                    if ((i >= 0) && (i < 24))
-                        f[i] = 1'b1;
-                end
-            end
-            drop_p24 = f;
+            v_shl = (sh <= 24) ? (v << (11'd24 - sh)) : 48'd0;
+            v_shr = (sh >= 72) ? 48'd0                : ((sh > 24)
+                               ? (v >> (sh - 11'd24)) : 48'd0);
+            drop_p24 = (sh <= 24) ? v_shl[23:0] : v_shr[23:0];
         end
     endfunction
+
 
     function automatic [23:0] drop_c24;
         input [23:0] v;
-        input integer sh;
-        integer      j;
-        integer      i;
-        reg  [23:0]  f;
+        input [10:0] sh;
+        reg   [23:0] v_shl;
+        reg   [23:0] v_shr;
         begin
-            f = 24'd0;
-            for (j = 0; j < 24; j = j + 1) begin
-                if ((j < sh) && v[j]) begin
-                    i = j + 24 - sh;
-                    if ((i >= 0) && (i < 24))
-                        f[i] = 1'b1;
-                end
-            end
-            drop_c24 = f;
+            v_shl = (sh <= 24) ? (v << (11'd24 - sh)) : 24'd0;
+            v_shr = (sh >= 48) ? 24'd0 : ((sh > 24) ? (v >> (sh - 11'd24)) : 24'd0);
+            drop_c24 = (sh <= 24) ? v_shl : v_shr;
         end
     endfunction
 
-    function automatic drop_p_sticky;
-        input [47:0] v;
-        input integer sh;
-        integer      j;
-        integer      i;
-        reg          r;
-        begin
-            r = 1'b0;
-            for (j = 0; j < 48; j = j + 1) begin
-                if ((j < sh) && v[j]) begin
-                    i = j + 24 - sh;
-                    if (i < 0)
-                        r = 1'b1;
-                end
-            end
-            drop_p_sticky = r;
-        end
-    endfunction
-
-    function automatic drop_c_sticky;
-        input [23:0] v;
-        input integer sh;
-        integer      j;
-        integer      i;
-        reg          r;
-        begin
-            r = 1'b0;
-            for (j = 0; j < 24; j = j + 1) begin
-                if ((j < sh) && v[j]) begin
-                    i = j + 24 - sh;
-                    if (i < 0)
-                        r = 1'b1;
-                end
-            end
-            drop_c_sticky = r;
-        end
-    endfunction
-
-    wire [23:0] p_drop_24 = drop_p24(prod, {21'd0, sh_p});
-    wire [23:0] c_drop_24 = drop_c24(p0_c_sig, {21'd0, sh_c});
+    wire [23:0] p_drop_24 = drop_p24(prod, sh_p);
+    wire [23:0] c_drop_24 = drop_c24(p0_c_sig, sh_c);
 
     function automatic [26:0] far_p27;
         input [47:0] v;
         input integer sh;
-        integer      j;
-        integer      d;
-        integer      m;
-        reg  [26:0]  f;
+        reg   [47:0] shifted;
         begin
-            f = 27'd0;
-            m = 51 - sh;
-            for (j = 0; j < 48; j = j + 1) begin
-                if ((j < (sh - 24)) && v[j]) begin
-                    d = j + m;
-                    if ((d >= 0) && (d <= 26))
-                        f[d] = 1'b1;
-                end
-            end
-            far_p27 = f;
+            if (sh <= 51)
+                shifted = v << (51 - sh);
+            else if (sh >= 99)
+                shifted = 48'd0;
+            else
+                shifted = v >> (sh - 51);
+
+            far_p27 = shifted[26:0];
         end
     endfunction
 
     function automatic [26:0] far_c27;
         input [23:0] v;
         input integer sh;
-        integer      j;
-        integer      d;
-        integer      m;
-        reg  [26:0]  f;
+        reg   [47:0] v_ext;
+        reg   [47:0] shifted;
         begin
-            f = 27'd0;
-            m = 51 - sh;
-            for (j = 0; j < 24; j = j + 1) begin
-                if ((j < (sh - 24)) && v[j]) begin
-                    d = j + m;
-                    if ((d >= 0) && (d <= 26))
-                        f[d] = 1'b1;
-                end
-            end
-            far_c27 = f;
+            v_ext = {24'd0, v};          
+
+            if (sh <= 51)
+                shifted = v_ext << (51 - sh);
+            else if (sh >= 75)
+                shifted = 48'd0;
+            else
+                shifted = v_ext >> (sh - 51);
+
+            far_c27 = shifted[26:0];
         end
     endfunction
 
@@ -462,6 +413,9 @@ module fma_unit #(
     wire [26:0] far_v_c = far_c27(p0_c_sig, {21'd0, sh_c});
     wire far_sticky = (sh_p > 51) ? (prod != 48'd0) : 1'b0;
     wire far_sticky_c = (sh_c > 51) ? (p0_c_sig != 24'd0) : 1'b0;
+
+    wire p_fully_off = (sh_p >= 99);
+    wire c_fully_off = (sh_c >= 75);
 
     // Stage2
     wire signed [66:0] p_signed = p1_p_sign ? -$signed({3'b000, p1_p_fixed})
@@ -514,11 +468,30 @@ module fma_unit #(
 
     function automatic [3:0] clz16_b;
         input [15:0] v;
+        reg   [15:0] temp;
+        reg   [ 3:0] count;
         begin
-            clz16_b = v[15] ? 4'd0 : v[14] ? 4'd1 : v[13] ? 4'd2 : v[12] ? 4'd3 :
-                      v[11] ? 4'd4 : v[10] ? 4'd5 : v[9]  ? 4'd6 : v[8]  ? 4'd7 :
-                      v[7]  ? 4'd8 : v[6]  ? 4'd9 : v[5]  ? 4'd10: v[4]  ? 4'd11:
-                      v[3]  ? 4'd12: v[2]  ? 4'd13: v[1]  ? 4'd14: 4'd15;
+            temp = v;
+            count = 4'b0;
+            if (temp[15: 8] == 8'b0) begin count = count + 4'd8; temp = temp << 8; end
+            if (temp[15:12] == 4'b0) begin count = count + 4'd4; temp = temp << 4; end
+            if (temp[15:14] == 2'b0) begin count = count + 4'd2; temp = temp << 2; end
+            if (temp[15   ] == 1'b0) begin count = count + 4'd1; end
+            clz16_b = (v == 16'b0) ? 4'd15 : count;
+        end
+    endfunction
+
+    function automatic [3:0] clz6_b;
+        input [5:0] v;
+        reg   [5:0] temp;
+        reg   [3:0] count;
+        begin
+            temp  = v;
+            count = 4'b0;
+            if (temp[5:3] == 3'b0) begin count = count + 4'd3; temp = temp << 3; end
+            if (temp[5:4] == 2'b0) begin count = count + 4'd2; temp = temp << 2; end
+            if (temp[5  ] == 1'b0) begin count = count + 4'd1; end
+            clz6_b = (v == 6'b0) ? 4'd6 : count;
         end
     endfunction
 
@@ -529,8 +502,7 @@ module fma_unit #(
     wire [3:0] blk4_clz = clz16_b(blk4);
     wire [3:0] blk5_clz = clz16_b(blk5);
     wire [3:0] blk6_clz = clz16_b(blk6);
-    wire [3:0] blk7_clz = blk7[5] ? 4'd0 : blk7[4] ? 4'd1 : blk7[3] ? 4'd2 :
-                          blk7[2] ? 4'd3 : blk7[1] ? 4'd4 : blk7[0] ? 4'd5 : 4'd6;
+    wire [3:0] blk7_clz = clz6_b(blk7);
 
     wire [3:0] lz_bot = (blk_idx == 3'd0) ? blk0_clz :
                         (blk_idx == 3'd1) ? blk1_clz :
@@ -547,6 +519,14 @@ module fma_unit #(
     wire deep_exists = p1_far_sticky | p1_far_sticky_c;
     wire deep_pos    = (p1_far_sticky   & (p1_p_sign == acc_sign)) |
                        (p1_far_sticky_c & (p1_c_sign == acc_sign));
+
+    // 全部被移出窗口外(只剩 sticky)的微小项，若其符号与主项相反，
+    // 真实值严格落在对齐边界之下(净差小于 1 ulp 的无穷小)，
+    // 有向舍入(RTZ/RDN/RUP)必须把结果向回拨 1 ulp。
+    wire p_cross_off = p1_p_off & p1_far_sticky & (p1_p_sign != acc_sign);
+    wire c_cross_off = p1_c_off & p1_far_sticky_c & (p1_c_sign != acc_sign);
+    wire p_cross = p_cross_off;
+    wire c_cross = c_cross_off;
 
     // Stage2 -> Stage3 pipeline
     always @(posedge clk) begin
@@ -565,6 +545,7 @@ module fma_unit #(
             p2_acc_zero  <= 1'b0;
             p2_deep_sticky <= 1'b0;
             p2_deep_pos  <= 1'b0;
+            p2_cross_exact <= 1'b0;
             p2_base      <= 11'sd0;
         end else begin
             p2_valid      <= p1_valid;
@@ -581,6 +562,7 @@ module fma_unit #(
             p2_acc_zero   <= acc_zero;
             p2_deep_sticky<= deep_exists;
             p2_deep_pos   <= deep_pos;
+            p2_cross_exact<= p_cross | c_cross;
             p2_base       <= p1_base;
         end
     end
@@ -589,13 +571,14 @@ module fma_unit #(
     function automatic or_low128;
         input [127:0] v;
         input [7:0]   cnt;
-        integer       i;
-        reg           r;
+        reg   [127:0] mask;
         begin
-            r = 1'b0;
-            for (i = 0; i < 128; i = i + 1)
-                if (i < cnt) r = r | v[i];
-            or_low128 = r;
+            if (cnt >= 8'd128)
+                mask = {128{1'b1}};
+            else
+                mask = (128'd1 << cnt) - 128'd1;
+
+            or_low128 = |(v & mask);
         end
     endfunction
 
@@ -616,28 +599,29 @@ module fma_unit #(
                        ((sub_d_abs > 14'sd117) ? or_low128({10'd0, p2_full}, 8'd118) :
                         or_low128({10'd0, p2_full}, sub_shift - 7'd2)));
 
-    wire [7:0] sub_s_cnt = (sub_shift >= 7'd2) ? (sub_shift - 7'd2) : 8'd0;
-    wire sub_s_grid = (sub_d_abs <= 14'sd117) ?
-                      ((sub_shift >= 7'd2) ? or_low128({10'd0, p2_full}, sub_s_cnt) : 1'b0) :
-                      1'b0;
-    wire sub_tie_rne = (p2_rm == `RNE) & sub_g_wire & ~sub_r_wire &
-                       ~sub_s_grid & p2_deep_sticky;
+    wire directed_rm = (p2_rm >= 3'd1) && (p2_rm <= 3'd3);
+    wire sub_acc_exact = (sub_shift >= 7'd1) ?
+                         ~or_low128({10'd0, p2_full}, sub_shift) : 1'b0;
+    wire sub_dec = directed_rm & p2_cross_exact & sub_acc_exact &
+                   (sub_u_wire != 24'd0);
+    wire [23:0] sub_u_eff = sub_dec ? (sub_u_wire - 24'd1) : sub_u_wire;
 
+    wire [7:0] sub_s_cnt = (sub_shift >= 7'd2) ? (sub_shift - 7'd2) : 8'd0;
     wire sub_round_up_frm;
     wire sub_inexact;
     frm u_sub_frm (
-        .rm      (p2_rm),
-        .sign    (p2_acc_sign),
-        .lsb     (sub_u_wire[0]),
-        .guard   (sub_g_wire),
-        .round   (sub_r_wire),
-        .sticky  (sub_s_wire),
+        .rm      (p2_rm           ),
+        .sign    (p2_acc_sign     ),
+        .lsb     (sub_u_eff[0]    ),
+        .guard   (sub_g_wire      ),
+        .round   (sub_r_wire      ),
+        .sticky  (sub_s_wire      ),
         .round_up(sub_round_up_frm),
-        .inexact (sub_inexact)
+        .inexact (sub_inexact     )
     );
-    wire sub_round_up = sub_tie_rne ? p2_deep_pos : sub_round_up_frm;
+    wire sub_round_up = sub_round_up_frm;
 
-    wire [24:0] sub_rounded_wire = {1'b0, sub_u_wire} + {24'd0, sub_round_up};
+    wire [24:0] sub_rounded_wire = {1'b0, sub_u_eff} + {24'd0, sub_round_up};
     wire sub_to_normal = sub_rounded_wire[23];
     wire sub_zero_out  = (sub_rounded_wire == 25'd0);
 
@@ -693,25 +677,30 @@ module fma_unit #(
         end
     end
 
-    wire norm_s_grid = (p2_top >= 7'd26) ? or_low128({10'd0, p2_full}, p2_top - 7'd25) : 1'b0;
-    wire norm_tie_rne = (p2_rm == `RNE) & norm_g & ~norm_r &
-                        ~norm_s_grid & p2_deep_sticky;
+    wire norm_acc_exact = (p2_top >= 7'd24) ?
+                          ~or_low128({10'd0, p2_full}, p2_top - 7'd23) :
+                          (p2_full == (118'd1 << p2_top));
+    wire norm_dec = directed_rm & p2_cross_exact & norm_acc_exact;
+    wire [23:0] norm_sig_r_eff = norm_dec ? (norm_sig_r - 24'd1) : norm_sig_r;
 
     wire norm_round_up_frm;
     wire norm_inexact;
     frm u_norm_frm (
-        .rm      (p2_rm),
-        .sign    (p2_acc_sign),
-        .lsb     (norm_sig_r[0]),
-        .guard   (norm_g),
-        .round   (norm_r),
-        .sticky  (norm_s),
+        .rm      (p2_rm            ),
+        .sign    (p2_acc_sign      ),
+        .lsb     (norm_sig_r_eff[0]),
+        .guard   (norm_g           ),
+        .round   (norm_r           ),
+        .sticky  (norm_s           ),
         .round_up(norm_round_up_frm),
-        .inexact (norm_inexact)
+        .inexact (norm_inexact     )
     );
-    wire norm_round_up = norm_tie_rne ? p2_deep_pos : norm_round_up_frm;
+    // IEEE 754 sticky = OR of all dropped bits（不区分符号）,
+    // 直接使用 frm 的 round_up 结果; 移除原来的 deep_pos override
+    // (softfloat 标准实现不感知 deep bits 符号方向)
+    wire norm_round_up = norm_round_up_frm;
 
-    wire [24:0] norm_sig_rounded = {1'b0, norm_sig_r} + {24'd0, norm_round_up};
+    wire [24:0] norm_sig_rounded = {1'b0, norm_sig_r_eff} + {24'd0, norm_round_up};
     wire [24:0] norm_sig_final = norm_sig_rounded[24] ? 25'h1800000 :
                                  {1'b0, norm_sig_rounded[23:0]};
     wire signed [12:0] norm_exp_final = norm_exp + (norm_sig_rounded[24] ? 13'sd1 : 13'sd0);
@@ -729,7 +718,9 @@ module fma_unit #(
             if (overflow_inf)
                 norm_result = {p2_acc_sign, 8'hFF, 23'd0};
             else
-                norm_result = {p2_acc_sign, 8'h7F, 23'h7FFFFF};
+                // 向最近一侧(RDN/RUP)饱和到最大有限数 FLT_MAX,
+                // 指数为 0xFE(254), 不能写成 bias 127
+                norm_result = {p2_acc_sign, 8'hFE, 23'h7FFFFF};
             norm_fflags[`OF] = 1'b1;
             norm_fflags[`NX] = 1'b1;
         end else begin

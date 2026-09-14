@@ -159,11 +159,19 @@ module fdiv #(
     wire [22:0]       frac_norm = carry ? 23'd0 : frac_c[22:0];
 
     wire norm_of     = (exp_norm > 10'sd127);
+    // 溢出时舍入方向：RNE/RMM、RUP(正)、RDN(负) 产生 ±∞；
+    // 其余(RDN 正 / RUP 负)饱和到最大有限数 FLT_MAX
+    wire overflow_inf = (rm_ff == `RNE) | (rm_ff == `RMM) |
+                        ((rm_ff == `RUP) & ~res_sign) |
+                        ((rm_ff == `RDN) &  res_sign);
     reg [31:0] norm_result;
     always @(*) begin
-        if (norm_of)
-            norm_result = {res_sign, 8'hFF, 23'd0};
-        else
+        if (norm_of) begin
+            if (overflow_inf)
+                norm_result = {res_sign, 8'hFF, 23'd0};
+            else
+                norm_result = {res_sign, 8'hFE, 23'h7FFFFF};
+        end else
             norm_result = {res_sign, exp_norm[7:0] + 8'd127, frac_norm};
     end
 
@@ -204,17 +212,30 @@ module fdiv #(
     wire [23:0] sub_N = sub_N_raw[23:0];
 
     wire        sub_shifted_sticky = (sub_rsh <= 10'sd25) ? sub_shift_sticky(sub_rsh[4:0], quo) : |quo;
-    wire        sub_sticky = div_sticky | sub_shifted_sticky;
+    wire        sub_sticky_all = div_sticky | sub_shifted_sticky;
 
     wire [22:0] sub_frac = sub_N[22:0];
+
+    // 正确提取 guard / round / sticky：
+    // sub_rsh 低位被右移丢弃，quo[sub_rsh-1] = guard，quo[sub_rsh-2] = round，
+    // 其余并入 sticky。sub_N_raw[0] = quo[sub_rsh] 是 sub_frac 的 LSB，不是 guard。
+    wire [24:0] sub_dropped = (sub_rsh <= 10'sd25)
+                            ? (quo & ((25'd1 << sub_rsh[4:0]) - 25'd1))
+                            : 25'd0;
+    wire sub_guard  = (sub_rsh >= 10'sd1) ? sub_dropped[sub_rsh[4:0] - 5'd1] : 1'b0;
+    wire sub_round  = (sub_rsh >= 10'sd2) ? sub_dropped[sub_rsh[4:0] - 5'd2] : 1'b0;
+    wire sub_sticky_drop = (sub_rsh >= 10'sd3)
+                          ? (|(sub_dropped & ((25'd1 << (sub_rsh[4:0] - 5'd2)) - 25'd1)))
+                          : 1'b0;
+    wire sub_sticky = sub_sticky_drop | sub_sticky_all;
 
     wire sub_round_up, sub_inexact;
     frm u_sub_frm (
         .rm      (rm_ff          ),
         .sign    (res_sign       ),
         .lsb     (sub_frac[0]    ),
-        .guard   (1'b0           ),
-        .round   (1'b0           ),
+        .guard   (sub_guard      ),
+        .round   (sub_round      ),
         .sticky  (sub_sticky     ),
         .round_up(sub_round_up   ),
         .inexact (sub_inexact    )

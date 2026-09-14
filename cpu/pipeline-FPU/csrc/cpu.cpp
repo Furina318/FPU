@@ -34,71 +34,21 @@ extern void append_iringbuf(char *s);
 extern void display_iringbuf(void);
 
 #define RETIRED_RING 60
-static struct { vaddr_t pc; uint32_t inst; uint32_t a0; } s_retired[RETIRED_RING];
+static struct { vaddr_t pc; uint32_t inst; } s_retired[RETIRED_RING];
 static int s_retired_cnt = 0;
-static uint32_t s_a0_last = 0;
 static void trace_retired(vaddr_t pc, uint32_t inst, uint32_t a0) {
-    s_retired[s_retired_cnt % RETIRED_RING] = (typeof(s_retired[0])){pc, inst, a0};
+    s_retired[s_retired_cnt % RETIRED_RING] = (typeof(s_retired[0])){pc, inst};
     s_retired_cnt++;
-    s_a0_last = a0;
 }
 
-#define CYCLE_RING 48
-static struct {
-    uint64_t cyc; uint32_t ifu_pc; uint32_t exu_valid;
-    uint32_t wbu_valid; uint32_t wbu_pc; uint32_t wbu_inst;
-    uint32_t x_rd; uint32_t x_gpr_we; uint32_t x_result;
-    uint32_t x_pc; uint32_t x_inst;
-    uint32_t wbu_fflags; uint32_t wbu_fpu;
-    uint32_t awvalid; uint32_t awaddr; uint32_t skip;
-    uint32_t lsu_awv; uint32_t lsu_awaddr;
-} s_cyc[48];
-static int s_cyc_cnt = 0;
-static void trace_cycle(void) {
-    static uint64_t s_cycle = 0;
-    s_cyc[s_cyc_cnt % CYCLE_RING] = (typeof(s_cyc[0])){
-        s_cycle++,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__ifu_pc,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__exu_valid,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu_valid,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu_pc,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu_inst,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__rd,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__gpr_we,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__result,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__pc,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__inst,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__fflags_r,
-        top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu__DOT__op_fpu,
-        top->rootp->ysyx_25010030_npc__DOT__io_master_awvalid,
-        top->rootp->ysyx_25010030_npc__DOT__io_master_awaddr,
-        0
-    };
-    s_cyc_cnt++;
-}
-static void dump_cycles(void) {
-    int n = s_cyc_cnt < CYCLE_RING ? s_cyc_cnt : CYCLE_RING;
-    int start = s_cyc_cnt < CYCLE_RING ? 0 : s_cyc_cnt - CYCLE_RING;
-    for (int i = 0; i < n; i++) {
-        int idx = (start + i) % CYCLE_RING;
-        printf("[CYC] cyc=%d ifu=0x%08x exu_valid=%d wbu_v=%d wbu_pc=0x%08x wbu_inst=0x%08x rd=%02d gpr_we=%d result=0x%08x xpc=0x%08x xinst=0x%08x fflags=%02x op_fpu=%d awv=%d awaddr=0x%08x\n",
-               (int)s_cyc[idx].cyc, s_cyc[idx].ifu_pc, s_cyc[idx].exu_valid,
-               s_cyc[idx].wbu_valid, s_cyc[idx].wbu_pc, s_cyc[idx].wbu_inst,
-               (int)s_cyc[idx].x_rd, (int)s_cyc[idx].x_gpr_we, s_cyc[idx].x_result,
-               s_cyc[idx].x_pc, s_cyc[idx].x_inst,
-               s_cyc[idx].wbu_fflags, s_cyc[idx].wbu_fpu,
-               s_cyc[idx].awvalid, s_cyc[idx].awaddr);
-    }
-    printf("[A0LAST] a0=0x%08x\n", s_a0_last);
-    fflush(stdout);
-}
 static void dump_retired(void) {
     int n = s_retired_cnt < RETIRED_RING ? s_retired_cnt : RETIRED_RING;
     int start = s_retired_cnt < RETIRED_RING ? 0 : s_retired_cnt - RETIRED_RING;
+    printf("\n\033[33mRetired instructions:\033[0m\n");
     for (int i = 0; i < n; i++) {
         int idx = (start + i) % RETIRED_RING;
-        printf("[RET] pc=0x%08x inst=0x%08x a0=0x%08x\n",
-               s_retired[idx].pc, s_retired[idx].inst, s_retired[idx].a0);
+        printf("[RET] pc=0x%08x inst=0x%08x\n",
+               s_retired[idx].pc, s_retired[idx].inst);
     }
     fflush(stdout);
 }
@@ -165,7 +115,6 @@ static void execute_once() {
       single_cycle();
       single_cycle();
       cycle_sum++;
-      trace_cycle();
       // trace_and_difftest();      
       if (!top->reset && top->rootp->ysyx_25010030_npc__DOT__cpu__DOT__wbu_valid) {
           g_nr_guest_inst++;
@@ -313,7 +262,7 @@ void cpu_exec(uint64_t n) {
 
         case NPC_END:
         case NPC_ABORT:
-            if(npc_state.state == NPC_ABORT || npc_state.halt_ret != 0) { dump_retired(); dump_cycles(); }
+            if(npc_state.state == NPC_ABORT || npc_state.halt_ret != 0) { dump_retired(); }
             Log("%s: %s at pc = 0x%08x",ANSI_FMT("NPC", ANSI_FG_YELLOW ANSI_BG_RED),
                 (npc_state.state == NPC_ABORT ? ANSI_FMT("ABORT", ANSI_FG_RED) :
                 (npc_state.halt_ret == 0 ? ANSI_FMT("HIT GOOD TRAP", ANSI_FG_GREEN) :

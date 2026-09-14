@@ -28,8 +28,8 @@ module fsqrt #(
 );
 
     localparam [25:0] C_2P24 = 26'd16777216;   // 2^24
-    localparam [24:0] C_Y0   = 25'd16777216;   // 2^24
-    localparam [25:0] C_W0   = 26'd33554432;   // 2^25
+    localparam [25:0] C_Y0   = 26'd16777216;   // 2^24
+    localparam [26:0] C_W0   = 27'd33554432;   // 2^25
 
     wire fstart = issue_valid & ~busy & ~flush;
 
@@ -122,8 +122,8 @@ module fsqrt #(
     wire signed [26:0] p_next = pn30[26:0];
 
     // Y / W 在线累积 (Y_ff 26bit, W_ff 27bit, 含余量容纳 q0=4 瞬态)
-    wire signed [27:0] Yn = $signed({2'b00, Y_ff}) + qinc;
-    wire signed [28:0] Wn = $signed({2'b00, W_ff}) + ($signed({2'b00, qinc}) <<< 1);
+    wire signed [27:0] Yn = $signed({2'b00, Y_ff}) + $signed({{2{qinc[25]}}, qinc});
+    wire signed [28:0] Wn = $signed({2'b00, W_ff}) + ($signed({{3{qinc[25]}}, qinc}) <<< 1);
     wire [25:0] y_next = Yn[25:0];
     wire [26:0] w_next = Wn[26:0];
 

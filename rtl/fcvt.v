@@ -67,10 +67,21 @@ module fcvt (
 
         if (src_is_nan || src_is_inf) begin
             f2i_invalid = 1'b1;
-            if (is_w_s)
-                f2i_result = src_sign ? 32'h80000000 : 32'h7fffffff;
-            else
-                f2i_result = 32'hffffffff;
+            if (is_w_s) begin
+                // spike(softfloat f32_to_i32): NaN 一律返回 INT_MAX(不区分符号);
+                // 仅 ±Inf 与有限溢出按符号返回最大/最小整数
+                if (src_is_nan)
+                    f2i_result = 32'h7fffffff;
+                else
+                    f2i_result = src_sign ? 32'h80000000 : 32'h7fffffff;
+            end else begin
+                // wu: NaN 与 +Inf → 0xffffffff; -Inf → 0
+                // (spike roundToUI32 溢出时: 非负返回全 1, 负返回 0)
+                if (src_is_inf && src_sign)
+                    f2i_result = 32'd0;
+                else
+                    f2i_result = 32'hffffffff;
+            end
         end
         else if (!src_is_zero) begin
             // 有限非零：src_sig 的小数点位于 bit23（1.xxx 定点形式），
@@ -88,18 +99,11 @@ module fcvt (
                 f2i_s = 1'b0;
             end else begin
                 f2i_rs = 32'sd23 - {{23{src_exp[8]}}, src_exp};
-                if (f2i_rs >= 64) begin
-                    // 24 位有效数全部移出（含次正规数的大移位情况）
+                if (f2i_rs > 24) begin
                     f2i_mag = 64'd0;
-                    f2i_g   = src_sig[23];
-                    f2i_r   = src_sig[22];
-                    f2i_s   = |src_sig[21:0];
-                end else if (f2i_rs > 24) begin
-                    // 24 bit 有效数全部移出
-                    f2i_mag = 64'd0;
-                    f2i_g   = src_sig[23];
-                    f2i_r   = src_sig[22];
-                    f2i_s   = |src_sig[21:0];
+                    f2i_g   = 1'b0;
+                    f2i_r   = 1'b0;
+                    f2i_s   = |src_sig;
                 end else if (f2i_rs > 0) begin
                     // 部分移出：截断值 = sig >> rs，G/R/S 按移出位置提取
                     f2i_mag = {40'd0, src_sig} >> f2i_rs;
@@ -131,14 +135,11 @@ module fcvt (
                 end
             end else begin
                 // unsigned
-                if (f2i_neg) begin
-                    f2i_invalid = 1'b1;
-                    f2i_result  = 32'd0;
-                end else if (f2i_mag > 64'h00000000ffffffff) begin
+                if (!f2i_neg && (f2i_mag > 64'h00000000ffffffff)) begin
                     f2i_invalid = 1'b1;
                     f2i_result  = 32'hffffffff;
                 end else begin
-                    f2i_result = f2i_mag[31:0];
+                    f2i_result = 32'd0;
                 end
             end
         end
@@ -281,10 +282,13 @@ module fcvt (
                 // 无符号路径
                 if (f2i_invalid) begin
                     result = f2i_result;
-                end else if (f2i_neg) begin
-                    // 负数转无符号：RISC-V 规定结果为 0 且置 NV
+                end else if (f2i_neg && (f2i_mag_final != 64'd0)) begin
+                    // 负值(舍入后幅值非零): softfloat 返回 0 且置 NV
                     result  = 32'd0;
                     fflags[`NV] = 1'b1;
+                end else if (f2i_neg) begin
+                    // 负小值(舍入后幅值为 0, 如负次正规): 返回 0, 仅置 NX
+                    result = 32'd0;
                 end else if (f2i_mag_final > 64'h00000000ffffffff) begin
                     result  = 32'hffffffff;
                     fflags[`NV] = 1'b1;
@@ -293,7 +297,8 @@ module fcvt (
                 end
             end
 
-            fflags[`NX] = f2i_inexact_frm;
+            // spike(softfloat) 行为: 溢出/无效转换(置 NV)时不同时置 NX
+            fflags[`NX] = f2i_inexact_frm & ~fflags[`NV];
             if (f2i_invalid)
                 fflags[`NV] = 1'b1;
         end

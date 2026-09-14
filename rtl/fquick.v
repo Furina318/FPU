@@ -52,7 +52,11 @@ module fquick (
     wire sign_inj   = fquick_op[8] | fquick_op[7] | fquick_op[6];
     wire fclass_op  = fquick_op[2];
     wire fmin_fmax  = fquick_op[1] | fquick_op[0];
-    wire minmax_nan_nv = invalid_nv | (a_nan & b_nan);
+    // FMIN/FMAX: 仅当任一操作数为 sNaN 时置 NV;
+    // 双 qNaN 静默返回 canonical NaN, 不能因 a_nan & b_nan 置 NV.
+    // (修正: 原实现把双 NaN 判定加入 NV, 使双 qNaN 时 fcsr NV 位
+    //  被错误置位, 与 spike 参考实现不符)
+    wire minmax_nan_nv = invalid_nv;
 
     // 绝对值比较：|a| < |b|
     // 注意: decode 对零操作数给出 exp=0/sig=0, 若直接比较会把零误判为
